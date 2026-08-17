@@ -93,6 +93,35 @@ Disse er ikke pynt — de er der for at appen ikke skal lyve.
    løsvekt uten strekkode og hva passordet faktisk beskytter — alt synlig
    nederst i planen, ikke bortgjemt i en README.
 
+## Hva ekte API avdekket (2026-08-17)
+
+Hele designet over ble skrevet mot API-dokumentasjonen, uten token. Første
+kjøring mot ekte data avdekket **seks feil**. Ingen av dem var mulig å se i
+enhetstester, fordi alle skyldtes at API-et oppfører seg annerledes enn
+dokumentert. Det er lærdommen: en røyktest mot ekte endepunkt er ikke valgfri
+når man bygger på et udokumentert API.
+
+| # | Feil | Hvordan den ble funnet |
+|---|---|---|
+| 1 | `exclude_without_ean=true` gir 0 treff, `=1` gir fullt sett | Sammenlignet parameterverdier |
+| 2 | `sort=price_asc` fyller siden med varer uten pris og butikk — 0 av 100 brukbare rader | Talte brukbare rader per sorteringsvalg |
+| 3 | `current_price` er tall på `/products`, objekt på `/products/ean/` | Inspiserte råe svar fra begge |
+| 4 | Coop har to kodesett: priser under `COOP_NO`, butikker under `COOP_EXTRA` m.fl. | `store=COOP_EXTRA` ga 0 produkter |
+| 5 | `prices-bulk` utelater kjeder — mistet Kiwi, som var billigst | Sammenlignet tre endepunkter på samme EAN |
+| 6 | `Number(null)` er `0`, ikke `NaN` — manglende kilopris ble «gratis» | Planen viste 0,00 kr på to varer |
+
+Feil 6 fortjener en merknad, for den er ikke en API-feil men vår egen, og den
+var den farligste: `Number.isFinite(Number(null))` er `true`. En vare uten
+oppgitt kilopris fikk dermed prisen 0 kr, og butikken med minst data vant hver
+sammenligning med gratis varer. Derfor finnes `positiveNumber()` i
+`optimizer.js`, og derfor leses hvert pristall gjennom den.
+
+En syvende oppdagelse var ikke en feil, men en datagrense verdt å kjenne:
+historikken fra `/products/ean/` er 25 punkter spredt over produktets hele
+levetid, ikke de siste 25 dagene. Kiwis kyllinghistorikk kom fra april 2023.
+Sammenslåingsregelen måtte derfor foretrekke **ferskest**, ikke **lengst** — se
+`pickBetterHistory()`.
+
 ## Bevisst utenfor omfang
 
 - Kundeaviser fra eTilbudsavis/Tjek. API-et er privat og udokumentert; skraping

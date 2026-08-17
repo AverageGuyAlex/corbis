@@ -1,37 +1,39 @@
 /**
- * Cron-jobb — henter nye priser for hele handlelista.
+ * Cron-jobb — starter den daglige prisoppdateringen.
  *
- * Kjøretiden er satt i netlify.toml (0 5 * * *, altså 05:00 UTC).
- * Netlify tillater ikke at planlagte funksjoner kalles utenfra, så denne
- * trenger ikke passordsjekk. Du kan kjøre den manuelt med:
+ * Denne gjør bevisst ingenting selv. Planlagte funksjoner har 30 sekunders
+ * tidsgrense, og en full prisoppdatering tar minutter fordi hver strekkode
+ * koster ett API-kall. En funksjon kan ikke være både planlagt og
+ * bakgrunnsfunksjon, så denne kaller refresh-run.mjs og går av veien.
  *
- *     netlify functions:invoke refresh
- *
- * eller med "Run now"-knappen under Functions i Netlify-panelet.
- *
- * Den skriver til Netlify Blobs, ikke til repoet — derfor utløser den ingen
- * deploy, og koster ingen deploy-credits.
+ * Kjøretiden står i netlify.toml (0 5 * * *, altså 05:00 UTC).
+ * Manuelt:  netlify functions:invoke refresh
  */
 
+import { triggerRefresh, siteUrl } from "../lib/trigger.mjs";
 import { buildPriceMatrix } from "../lib/pricematrix.mjs";
 
 export default async () => {
-  const started = Date.now();
-
-  try {
+  // Lokalt under `netlify functions:invoke` finnes det ingen side-URL å kalle.
+  // Da kjører vi jobben rett her i stedet — tidsgrensen gjelder ikke for en
+  // manuell CLI-kjøring, så det er den enkleste måten å teste på.
+  if (!siteUrl()) {
+    console.log("[refresh] ingen side-URL — kjører prisoppdateringen direkte (lokal modus).");
     const matrix = await buildPriceMatrix();
-    const seconds = ((Date.now() - started) / 1000).toFixed(1);
-
     console.log(
-      `[refresh] ${matrix.eanCount} strekkoder i ${matrix.calls} bulk-kall på ${seconds}s. ` +
-        `${Object.keys(matrix.byEan).length} fikk prisdata.`,
+      `[refresh] ${matrix.priced}/${matrix.eanCount} strekkoder priset i ${matrix.calls} kall på ${matrix.seconds}s.`,
     );
     for (const note of matrix.notes ?? []) console.log(`[refresh] ${note}`);
-
     return new Response(null, { status: 204 });
-  } catch (err) {
-    // Kastes videre slik at kjøringen markeres som feilet i Netlify-loggen.
-    console.error("[refresh] feilet:", err?.message, err?.body ?? "");
-    throw err;
   }
+
+  const result = await triggerRefresh();
+
+  if (result.started) {
+    console.log("[refresh] bakgrunnsjobben er startet.");
+  } else {
+    console.error("[refresh] fikk ikke startet bakgrunnsjobben:", result.reason);
+  }
+
+  return new Response(null, { status: 204 });
 };

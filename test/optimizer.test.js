@@ -14,6 +14,9 @@ import assert from "node:assert/strict";
 import {
   median,
   toBase,
+  positiveNumber,
+  pickBetterHistory,
+  recentPointCount,
   badgeFor,
   combinations,
   buildMatrix,
@@ -154,6 +157,106 @@ describe("median", () => {
   });
 });
 
+describe("positiveNumber", () => {
+  test("null blir null, ikke 0", () => {
+    // Number(null) er 0. Denne feilen gjorde at varer uten kilopris ble
+    // regnet som gratis, og butikken med minst data vant alt.
+    assert.equal(positiveNumber(null), null);
+    assert.equal(positiveNumber(undefined), null);
+    assert.equal(positiveNumber(""), null);
+  });
+
+  test("null og negative tall avvises", () => {
+    assert.equal(positiveNumber(0), null);
+    assert.equal(positiveNumber(-5), null);
+  });
+
+  test("tall og tallstrenger slipper gjennom", () => {
+    assert.equal(positiveNumber(29.9), 29.9);
+    assert.equal(positiveNumber("99.00"), 99);
+  });
+});
+
+describe("manglende kilopris fører aldri til gratis varer", () => {
+  // Regresjonstest for feilen som gjorde at Kiwi «vant» med kylling til 0 kr.
+  const PRICES_UTEN_UNITPRICE = {
+    builtAt: NOW.toISOString(),
+    byEan: {
+      "800": {
+        name: "Kyllingfilet 2 kg First Price",
+        weight: 2000,
+        weightUnit: "g",
+        stores: {
+          // Kiwi oppgir ikke kilopris — dette er det vanlige tilfellet.
+          KIWI: { price: 279, unitPrice: null, unitPriceUnit: "kg" },
+          MENY_NO: { price: 299, unitPrice: 149.5, unitPriceUnit: "kg" },
+        },
+        history: {},
+      },
+    },
+  };
+
+  const item = {
+    id: "kylling", label: "Kyllingfilet", qty: 1, qtyUnit: "kg",
+    compareBy: "unit", approvedEans: ["800"],
+  };
+
+  const matrix = buildMatrix({
+    items: [item], prices: PRICES_UTEN_UNITPRICE, chains: ["KIWI", "MENY_NO"], now: NOW,
+  });
+
+  test("kiloprisen regnes ut fra vekten når API-et ikke oppgir den", () => {
+    assert.equal(matrix.kylling.KIWI.status, "ok");
+    assert.equal(matrix.kylling.KIWI.cost, 139.5); // 279 kr / 2 kg
+  });
+
+  test("ingen celle koster 0 kr", () => {
+    for (const chain of ["KIWI", "MENY_NO"]) {
+      assert.ok(matrix.kylling[chain].cost > 0, `${chain} fikk kostnad 0`);
+    }
+  });
+
+  test("Kiwi er faktisk billigst her, og av riktig grunn", () => {
+    assert.ok(matrix.kylling.KIWI.cost < matrix.kylling.MENY_NO.cost);
+    assert.equal(matrix.kylling.MENY_NO.cost, 149.5);
+  });
+});
+
+describe("pickBetterHistory", () => {
+  // Regresjonstest for at tilbud-merkene faktisk kan vises. /products/ean/ gir
+  // 25 punkter spredt over flere år; bulk gir tettere og ferskere data. En
+  // regel som bare teller punkter velger de gamle, og da blir alt UKJENT.
+  const gammelOgLang = flatHistory(50, 25, 700); // 25 punkter, ~2 år siden
+  const nyOgKort = flatHistory(50, 8); // 8 punkter, siste uke
+
+  test("fersk historikk slår lang historikk", () => {
+    assert.equal(pickBetterHistory(gammelOgLang, nyOgKort, NOW), nyOgKort);
+    assert.equal(pickBetterHistory(nyOgKort, gammelOgLang, NOW), nyOgKort);
+  });
+
+  test("er begge ferske, vinner den lengste", () => {
+    const lang = flatHistory(50, 40);
+    assert.equal(pickBetterHistory(nyOgKort, lang, NOW), lang);
+  });
+
+  test("er ingen ferske, vinner den lengste", () => {
+    const kortOgGammel = flatHistory(50, 3, 700);
+    assert.equal(pickBetterHistory(kortOgGammel, gammelOgLang, NOW), gammelOgLang);
+  });
+
+  test("recentPointCount teller bare innenfor vinduet", () => {
+    assert.equal(recentPointCount(nyOgKort, NOW), 8);
+    assert.equal(recentPointCount(gammelOgLang, NOW), 0);
+    assert.equal(recentPointCount([], NOW), 0);
+  });
+
+  test("gammel historikk gir UKJENT, ikke et tall vi ikke kan stå for", () => {
+    // Dette er hvorfor regelen betyr noe: uten fersk data skal vi ikke gjette.
+    assert.equal(badgeFor(gammelOgLang, 30, { now: NOW }).badge, "UKJENT");
+    assert.equal(badgeFor(nyOgKort, 30, { now: NOW }).badge, "LAVESTE");
+  });
+});
+
 describe("toBase", () => {
   test("gram og kilo havner i samme familie", () => {
     assert.deepEqual(toBase(400, "g"), { amount: 0.4, family: "masse" });
@@ -184,19 +287,30 @@ describe("badgeFor", () => {
 
   test("laveste registrerte pris vinner over TILBUD", () => {
     // Samme rabatt som over, men her har prisen aldri vært lavere.
-    // Da er 'laveste på 90 dager' den sterkeste beskjeden vi kan gi.
+    // Da er "laveste på N dager" den sterkeste beskjeden vi kan gi.
     const r = badgeFor(flatHistory(119.9, 60), 89.9, { now: NOW });
-    assert.equal(r.badge, "LAVESTE_90D");
-    assert.equal(r.isLowest90, true);
+    assert.equal(r.badge, "LAVESTE");
+    assert.equal(r.isLowest, true);
     assert.equal(r.pctVsMedian, -25);
   });
 
-  test("flat pris er NORMAL, ikke LAVESTE_90D", () => {
+  test("flat pris er NORMAL, ikke LAVESTE", () => {
     // Uten kravet om at prisen også må ligge under medianen ville alt med
-    // stabil pris fått 'laveste på 90 dager', som er teknisk sant og ubrukelig.
+    // stabil pris fått laveste-merket, som er teknisk sant og ubrukelig.
     const r = badgeFor(flatHistory(39.9, 60), 39.9, { now: NOW });
     assert.equal(r.badge, "NORMAL");
-    assert.equal(r.isLowest90, false);
+    assert.equal(r.isLowest, false);
+  });
+
+  test("spanDays følger hvor langt historikken faktisk rekker", () => {
+    // Merket skal aldri påstå 90 dager når vi bare har data for 24.
+    // Per-EAN-endepunktet gir rundt 25 dager, bulk opptil 90.
+    const kort = badgeFor(flatHistory(50, 25), 30, { now: NOW });
+    assert.equal(kort.badge, "LAVESTE");
+    assert.equal(kort.spanDays, 24);
+
+    const lang = badgeFor(flatHistory(50, 60), 30, { now: NOW });
+    assert.equal(lang.spanDays, 59);
   });
 
   test("over medianen er DYRT_NA", () => {

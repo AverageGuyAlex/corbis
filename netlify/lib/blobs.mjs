@@ -19,6 +19,9 @@ export const KEYS = {
   stores: "stores",
   prices: "prices",
   candidates: "candidates",
+  // Framdrift for prisoppdateringen. Den tar et par minutter i bakgrunnen,
+  // og uten dette ville UI-et bare stått og sett tomt ut imens.
+  refresh: "refresh",
 };
 
 export const DEFAULTS = {
@@ -46,6 +49,14 @@ export const DEFAULTS = {
     cursor: 0,
     byItem: {},
     updatedAt: null,
+  },
+  refresh: {
+    running: false,
+    startedAt: null,
+    finishedAt: null,
+    done: 0,
+    total: 0,
+    error: null,
   },
 };
 

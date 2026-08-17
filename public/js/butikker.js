@@ -48,9 +48,11 @@ function openingHoursText(oh) {
 }
 
 function updateSummary() {
-  const chains = new Set([...selected.values()].map((s) => s.chain));
+  // Vi teller priskjeder, ikke butikkformater: fem Coop-butikker av tre
+  // formater gir fortsatt bare ett prissett å sammenligne med.
+  const chains = new Set([...selected.values()].map((s) => s.chain).filter(Boolean));
   const text = selected.size
-    ? `${selected.size} butikker · ${chains.size} kjeder: ${[...chains].map(chainLabel).join(", ")}`
+    ? `${selected.size} butikker · ${chains.size} prissett: ${[...chains].map(chainLabel).join(", ")}`
     : "Ingen butikker valgt";
   replace($("#summary"), text);
 }
@@ -80,11 +82,14 @@ function storeRow(store) {
 }
 
 function renderStores(stores, { title, hint }) {
+  // Gruppert på butikkformat, ikke priskjede — du skal se «Coop Extra» og
+  // «Coop Prix» hver for seg når du velger hvor du faktisk går inn.
   const byChain = new Map();
   for (const s of stores) {
-    if (!s.chain) continue;
-    if (!byChain.has(s.chain)) byChain.set(s.chain, []);
-    byChain.get(s.chain).push(s);
+    const group = s.group ?? s.chain;
+    if (!group) continue;
+    if (!byChain.has(group)) byChain.set(group, []);
+    byChain.get(group).push(s);
   }
 
   // Kjeden med nærmeste butikk først — det er den du mest sannsynlig vil ha.
@@ -103,9 +108,17 @@ function renderStores(stores, { title, hint }) {
   ];
 
   for (const [chain, list] of chains) {
+    // Navnet kommer fra butikkobjektet, ikke fra priskjede-tabellen — den
+    // kjenner ikke butikkformater som COOP_EXTRA.
+    const heading = list[0]?.groupLabel ?? chainLabel(list[0]?.chain ?? chain);
+    const sharesPrices = list[0]?.chain && list[0].chain !== chain;
+
     const card = el("section", { class: "card" },
       el("div", { class: "card__head" },
-        el("h3", { text: chainLabel(chain) }),
+        el("h3", { text: heading }),
+        sharesPrices
+          ? el("span", { class: "tiny muted", text: `priser via ${chainLabel(list[0].chain)}` })
+          : null,
         el("button", {
           class: "btn btn--sm", text: "Velg nærmeste",
           onClick: () => {

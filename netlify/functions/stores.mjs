@@ -12,7 +12,14 @@
 import { requireKey, json, errorResponse, readBody } from "../lib/auth.mjs";
 import { kassalGetAll } from "../lib/kassal.mjs";
 import { readJSON, writeJSON, KEYS, DEFAULTS } from "../lib/blobs.mjs";
-import { isGroceryChain, chainLabel, chainLabels } from "../lib/chains.mjs";
+import {
+  isGroceryStoreGroup,
+  priceChainFor,
+  chainLabel,
+  storeGroupLabel,
+  chainLabels,
+  APPROXIMATE_PRICE_CHAINS,
+} from "../lib/chains.mjs";
 
 export const config = { path: "/api/stores" };
 
@@ -43,10 +50,16 @@ function positionOf(store) {
 
 function normaliseStore(raw, home) {
   const pos = positionOf(raw);
+  const group = raw?.group ?? null;
   return {
     id: raw?.id ?? null,
-    chain: raw?.group ?? null,
-    chainLabel: chainLabel(raw?.group),
+    // `group` er butikkformatet (COOP_EXTRA), `chain` er priskjeden prisene
+    // ligger under (COOP_NO). De er ikke det samme, og begge trengs:
+    // den ene for å vise riktig butikknavn, den andre for å finne prisene.
+    group,
+    groupLabel: storeGroupLabel(group),
+    chain: priceChainFor(group),
+    chainLabel: chainLabel(priceChainFor(group)),
     name: raw?.name ?? "Ukjent butikk",
     address: raw?.address ?? null,
     lat: pos?.lat ?? null,
@@ -59,19 +72,34 @@ function normaliseStore(raw, home) {
   };
 }
 
-/** Oppsummerer de valgte butikkene per kjede — det optimalisereren trenger. */
+/**
+ * Oppsummerer de valgte butikkene per PRISKJEDE — det optimalisereren trenger.
+ *
+ * Butikknavnene beholdes, slik at planen kan si «Coop — Coop Extra Grim, 1,4 km»
+ * i stedet for bare «Coop». Du skal vite hvilken dør du går inn.
+ */
 function summariseChains(selected) {
   const out = {};
   for (const s of selected ?? []) {
-    if (!s?.chain) continue;
-    const entry = (out[s.chain] ??= {
-      label: chainLabel(s.chain),
+    const chain = s?.chain ?? priceChainFor(s?.group);
+    if (!chain) continue;
+
+    const entry = (out[chain] ??= {
+      label: chainLabel(chain),
       storeCount: 0,
       nearestKm: null,
       stores: [],
+      // Sant når ett prissett dekker flere butikkformater med reelt ulike
+      // priser. UI-et skal si fra om det.
+      approximate: APPROXIMATE_PRICE_CHAINS.has(chain),
     });
     entry.storeCount += 1;
-    entry.stores.push({ name: s.name, address: s.address, km: s.km });
+    entry.stores.push({
+      name: s.name,
+      address: s.address,
+      km: s.km,
+      groupLabel: s.groupLabel ?? storeGroupLabel(s.group),
+    });
     if (Number.isFinite(s.km) && (entry.nearestKm === null || s.km < entry.nearestKm)) {
       entry.nearestKm = s.km;
     }
@@ -108,12 +136,16 @@ export default async (req) => {
         },
         km: Number.isFinite(km) ? Math.min(Math.max(km, 1), 60) : DEFAULTS.stores.km,
         selected: (Array.isArray(body.selected) ? body.selected : [])
-          .filter((s) => s?.chain && isGroceryChain(s.chain))
+          // Frontenden sender butikkformatet; priskjeden utleder vi selv, slik
+          // at en gammel lagret liste uten `chain` fortsatt virker.
+          .filter((s) => isGroceryStoreGroup(s?.group ?? s?.chain))
           .slice(0, 60)
           .map((s) => ({
             id: s.id ?? null,
-            chain: s.chain,
-            chainLabel: chainLabel(s.chain),
+            group: s.group ?? s.chain,
+            groupLabel: storeGroupLabel(s.group ?? s.chain),
+            chain: priceChainFor(s.group ?? s.chain),
+            chainLabel: chainLabel(priceChainFor(s.group ?? s.chain)),
             name: String(s.name ?? "").slice(0, 120),
             address: s.address ? String(s.address).slice(0, 200) : null,
             lat: Number.isFinite(Number(s.lat)) ? Number(s.lat) : null,
@@ -160,7 +192,7 @@ export default async (req) => {
     const raw = await kassalGetAll("/physical-stores", { lat, lng, km, size: 100 }, 3);
 
     const nearby = raw
-      .filter((s) => isGroceryChain(s?.group))
+      .filter((s) => isGroceryStoreGroup(s?.group))
       .map((s) => normaliseStore(s, home))
       .sort((a, b) => (a.km ?? Infinity) - (b.km ?? Infinity));
 

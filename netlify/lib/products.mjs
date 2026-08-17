@@ -14,6 +14,9 @@
 import { kassalGet, kassalGetAll, unwrap } from "./kassal.mjs";
 import { isGroceryChain } from "./chains.mjs";
 
+// Delt med nettleseren, slik at server og klient tolker tall likt.
+import { positiveNumber } from "../../public/js/optimizer.js";
+
 const norm = (s) => String(s ?? "").toLowerCase().trim();
 
 /**
@@ -45,11 +48,41 @@ export function matchesWords(product, { include = [], exclude = [] } = {}) {
 }
 
 function chainOf(row) {
+  // I ekte svar er `store` et objekt, ikke et array — skjemaet sier array.
+  // Vi takler begge, siden endepunktene ikke er konsekvente.
   const stores = Array.isArray(row?.store) ? row.store : row?.store ? [row.store] : [];
   for (const s of stores) {
     if (s?.code) return s.code;
   }
   return null;
+}
+
+/**
+ * Henter pris og kilopris ut av en rad.
+ *
+ * De to endepunktene svarer i ulik form, og det er ikke dokumentert:
+ *   /products?search=      → current_price: 99          (tall)
+ *   /products/ean/{ean}    → current_price: {price: 99, unit_price: 198, date}
+ *
+ * Uten denne normaliseringen ga Number(current_price) = NaN på EAN-oppslag,
+ * og strekkodeskanneren fant aldri noe som helst.
+ */
+function priceOf(row) {
+  const raw = row?.current_price;
+
+  // positiveNumber, ikke Number: Number(null) er 0, ikke NaN. Et manglende
+  // prisfelt ble derfor til "0 kr" og butikken med minst data vant alt.
+  if (raw !== null && typeof raw === "object") {
+    return {
+      price: positiveNumber(raw.price),
+      unitPrice: positiveNumber(raw.unit_price ?? raw.current_unit_price),
+    };
+  }
+
+  return {
+    price: positiveNumber(raw),
+    unitPrice: positiveNumber(row?.current_unit_price),
+  };
 }
 
 /**
@@ -65,8 +98,10 @@ export function groupByEan(rows) {
     const chain = chainOf(row);
     if (!chain || !isGroceryChain(chain)) continue;
 
-    const price = Number(row.current_price);
-    if (!Number.isFinite(price)) continue;
+    // Ekte svar inneholder rader uten butikk og med price: null — varer kjeden
+    // ikke har inne nå. De skal ikke telle som tilgjengelige.
+    const { price, unitPrice } = priceOf(row);
+    if (price === null) continue;
 
     if (!byEan.has(ean)) {
       byEan.set(ean, {
@@ -83,16 +118,26 @@ export function groupByEan(rows) {
     }
 
     const cand = byEan.get(ean);
-    const unitPrice = Number(row.current_unit_price);
     const existing = cand.chains[chain];
+
+    // Bildet mangler ofte på den første raden vi ser, men finnes på en senere.
+    if (!cand.image && row.image) cand.image = row.image;
+    if (!cand.name && row.name) cand.name = row.name;
+    if (cand.weight === null && row.weight != null) {
+      cand.weight = row.weight;
+      cand.weightUnit = row.weight_unit ?? null;
+    }
 
     // Samme vare kan dukke opp flere ganger for samme kjede. Behold billigste.
     if (!existing || price < existing.price) {
       cand.chains[chain] = {
         price,
-        unitPrice: Number.isFinite(unitPrice) ? unitPrice : null,
+        unitPrice,
         unitPriceUnit: unitFromWeightUnit(row.weight_unit),
         url: row.url ?? null,
+        // Hver kjede har sitt eget produktbilde. Vi tar vare på det per kjede,
+        // slik at bildet følger produktet optimalisereren faktisk valgte.
+        image: row.image ?? null,
       };
     }
   }
@@ -137,8 +182,17 @@ export async function searchCandidates({
     {
       search: query,
       size: 100,
-      exclude_without_ean: true,
-      sort: "price_asc",
+      // MÅ være 1, ikke true. Målt mot ekte API: exclude_without_ean=true
+      // returnerer null treff, exclude_without_ean=1 returnerer fullt sett.
+      exclude_without_ean: 1,
+      //
+      // IKKE legg til sort her. Målt på samme søk:
+      //   sort=price_asc  → 100 rader, 0 med butikk og pris
+      //   sort=name_asc   → 100 rader, 37 brukbare
+      //   ingen sort      → 100 rader, 68 brukbare
+      // Varer uten pris sorteres først som null, og fyller hele siden med
+      // produkter ingen butikk har inne. Vi sorterer på kilopris selv lenger
+      // nede, der vi faktisk vet prisene.
       category_id: categoryId ?? undefined,
     },
     pages,
@@ -161,6 +215,78 @@ export async function searchCandidates({
     filteredOut: rows.length - kept.length,
     truncated: candidates.length > limit,
   };
+}
+
+/**
+ * Henter alt vi trenger om én strekkode: pris i hver kjede, prishistorikk per
+ * kjede, og produktbilde.
+ *
+ * Dette er kilden prismatrisen bygges på, og valget er målt fram. For
+ * EAN 7048840081950 (Lettmelk Q 1,75 l):
+ *
+ *   POST /products/prices-bulk  →  2 kjeder  (Spar 33,90, Meny 31,90)
+ *   GET  /products/ean/{ean}    →  6 kjeder  (bl.a. Kiwi 28,80, Coop 29,50)
+ *
+ * Bulk er billigere — 100 strekkoder per kall mot ett — men det utelater
+ * kjeder, og da anbefaler appen feil butikk. Riktig svar er viktigere enn
+ * raskt svar, så vi betaler med ett kall per strekkode.
+ */
+export async function fetchEanPrices(ean) {
+  const json = await kassalGet(`/products/ean/${encodeURIComponent(ean)}`);
+  const data = unwrap(json);
+  const listings = Array.isArray(data?.products) ? data.products : [];
+
+  const row = {
+    name: null,
+    image: null,
+    weight: null,
+    weightUnit: null,
+    stores: {},
+    history: {},
+  };
+
+  for (const listing of listings) {
+    const chain = chainOf(listing);
+    if (!chain || !isGroceryChain(chain)) continue;
+
+    const { price, unitPrice } = priceOf(listing);
+    if (price === null) continue;
+
+    // Første brukbare oppføring gir navn, vekt og reservebilde.
+    if (!row.name && listing.name) row.name = listing.name;
+    if (!row.image && listing.image) row.image = listing.image;
+    if (row.weight === null && listing.weight != null) {
+      row.weight = listing.weight;
+      row.weightUnit = listing.weight_unit ?? null;
+    }
+
+    const existing = row.stores[chain];
+    if (!existing || price < existing.price) {
+      row.stores[chain] = {
+        price,
+        unitPrice,
+        unitPriceUnit: unitFromWeightUnit(listing.weight_unit ?? row.weightUnit),
+        image: listing.image ?? null,
+        url: listing.url ?? null,
+        lastChecked: listing.current_price?.date ?? null,
+      };
+    }
+
+    // Historikken ligger nestet under hver butikkoppføring, uten store-felt —
+    // i motsetning til bulk-endepunktet, der hvert punkt bærer sin egen kjede.
+    const points = (listing.price_history ?? [])
+      .map((h) => ({ date: String(h.date ?? "").slice(0, 10), price: positiveNumber(h.price) }))
+      .filter((h) => h.date && h.price !== null);
+
+    if (points.length) {
+      const merged = [...(row.history[chain] ?? []), ...points];
+      const seen = new Map();
+      for (const p of merged) seen.set(p.date, p);
+      row.history[chain] = [...seen.values()].sort((a, b) => a.date.localeCompare(b.date));
+    }
+  }
+
+  return row;
 }
 
 /** Slår opp én strekkode — brukes av skanneren. */

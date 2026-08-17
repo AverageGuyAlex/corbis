@@ -8,7 +8,7 @@
 
 import { recommend, formatKr, formatUnitPrice } from "./optimizer.js";
 import { api, getKey, setKey, clearKey } from "./api.js";
-import { cachedState, loadAll, saveList, refreshPrices } from "./store.js";
+import { cachedState, loadAll, saveList, startRefresh, fetchPrices } from "./store.js";
 import { el, replace, $ } from "./dom.js";
 import { scannerSupported, startScan } from "./scanner.js";
 
@@ -77,9 +77,11 @@ const BADGE_UI = {
     text: `Tilbud ${cell.pctVsMedian} %`,
     title: `Normalpris er rundt ${formatKr(cell.medianPrice)} (median siste 60 dager).`,
   }),
-  LAVESTE_90D: (cell) => ({
+  // Perioden kommer fra dataene, ikke fra en antakelse: hvor langt tilbake vi
+  // ser varierer mellom ~25 og 90 dager avhengig av hva API-et ga oss.
+  LAVESTE: (cell) => ({
     cls: "badge--laveste",
-    text: "Laveste på 90 d",
+    text: cell.spanDays ? `Laveste på ${cell.spanDays} d` : "Laveste registrerte",
     title: `Lavere enn noe vi har registrert. Normalpris er rundt ${formatKr(cell.medianPrice)}.`,
   }),
   DYRT_NA: (cell) => ({
@@ -94,6 +96,43 @@ function badgeNode(cell) {
   if (!make) return null;
   const { cls, text, title } = make(cell);
   return el("span", { class: `badge ${cls}`, text, title });
+}
+
+/**
+ * Produktbilde med reserve.
+ *
+ * Ramma har alltid faste mål, også når bildet mangler eller feiler — ellers
+ * hopper lista mens de 25 bildene lastes, og da mister du plassen din i det du
+ * scroller. Feiler bildet, byttes det ut med varens forbokstav, aldri et
+ * knekt bildeikon.
+ */
+function thumb(src, label, size = "md") {
+  const box = el("div", { class: `thumb thumb--${size}` });
+  const fallback = () =>
+    replace(
+      box,
+      el("span", {
+        class: "thumb__fallback",
+        text: String(label ?? "?").trim().charAt(0) || "?",
+      }),
+    );
+
+  if (!src) {
+    fallback();
+    return box;
+  }
+
+  box.append(
+    el("img", {
+      src,
+      alt: "",
+      loading: "lazy",
+      decoding: "async",
+      referrerpolicy: "no-referrer",
+      onError: fallback,
+    }),
+  );
+  return box;
 }
 
 function dateLabel(iso) {
@@ -282,16 +321,17 @@ function renderPlan() {
     for (const item of lines) {
       const cell = state.result.matrix?.[item.id]?.[chain];
       stop.append(
-        el("div", { class: "line" },
-          el("div", { class: "line__main" },
-            el("div", { class: "line__name", text: `${item.label} · ${qtyLabel(item)}` }),
-            el("div", { class: "line__meta truncate", text: cell?.name ?? "" }),
+        el("div", { class: "pline" },
+          thumb(cell?.image, item.label, "lg"),
+          el("div", { class: "pline__body" },
+            el("div", { class: "pline__name", text: `${item.label} · ${qtyLabel(item)}` }),
+            el("div", { class: "pline__product", text: cell?.name ?? "" }),
+            el("div", { class: "pline__tags" }, badgeNode(cell)),
           ),
-          badgeNode(cell),
-          el("div", { class: "line__price" },
-            formatKr(plan.perItem[item.id].cost),
+          el("div", { class: "pline__right" },
+            el("div", { class: "pline__price", text: formatKr(plan.perItem[item.id].cost) }),
             cell?.basis === "unit" && cell?.unitPrice
-              ? el("div", { class: "line__meta right", text: formatUnitPrice(cell.unitPrice, item.qtyUnit) })
+              ? el("div", { class: "pline__unit", text: formatUnitPrice(cell.unitPrice, item.qtyUnit) })
               : null,
           ),
         ),
@@ -328,10 +368,16 @@ function renderPlan() {
   nodes.push(renderRanking());
 
   // --- Ærlige forbehold --------------------------------------------------
+  // Kjeder der ett prissett dekker flere butikkformater med reelt ulike priser.
+  const omtrentlige = plan.chains.filter((c) => state.stores.chains?.[c]?.approximate);
+
   nodes.push(
     el("section", { class: "card card--flat small muted" },
       el("p", { text: `Priser hentet ${dateLabel(state.prices.builtAt)}. Kassalapp oppdaterer én gang i døgnet, og feil kan forekomme.` }),
-      el("p", { text: "Norske kjeder priser nasjonalt, så dette er billigst blant kjedene nær deg — ikke en garanti i kassa. Lokale Coop-samvirkelag og Obs kan avvike." }),
+      el("p", { text: "Norske kjeder priser nasjonalt, så dette er billigst blant kjedene nær deg — ikke en garanti i kassa." }),
+      omtrentlige.length
+        ? el("p", { text: `${omtrentlige.map(chainLabel).join(", ")}: Kassalapp har ett felles prissett for alle butikkformatene. Extra, Prix og Mega har i virkeligheten ulike priser, så disse tallene er mer veiledende enn de andre.` })
+        : null,
       result.excludedByDistance?.length
         ? el("p", { text: `Utelatt fordi de er lenger unna enn ${state.list.settings.maxKm} km: ${result.excludedByDistance.map(chainLabel).join(", ")}.` })
         : null,
@@ -368,7 +414,9 @@ function renderRanking() {
             ? el("span", { class: "tiny muted", text: ` ${state.stores.chains[s.chain].nearestKm} km` })
             : null,
         ),
-        el("td", { class: "num", text: formatKr(s.total) }),
+        // En butikk som ikke har noen av varene dine koster ikke 0 kr — den
+        // er ubrukelig. Vis en strek, ellers ser den ut som den billigste.
+        el("td", { class: "num", text: s.covered === 0 ? "–" : formatKr(s.total) }),
         el("td", { class: "num", text: `${s.covered}/${state.list.items.length}` }),
       ),
     );
@@ -422,6 +470,33 @@ function renderList() {
   replace(ui.liste, nodes);
 }
 
+/**
+ * Bildet av den billigste godkjente varen akkurat nå.
+ * Bytter du hvilke produkter som er godkjent, eller går et av dem ned i pris,
+ * følger bildet etter av seg selv — det er nøklet på strekkode, ikke lagret.
+ */
+function itemImage(item) {
+  const eans = item.lockedEan ? [item.lockedEan] : (item.approvedEans ?? []);
+  let bestPrice = Infinity;
+  let bestImage = null;
+  let anyImage = null;
+
+  for (const ean of eans) {
+    const entry = state.prices.byEan?.[ean];
+    if (!entry) continue;
+    anyImage ??= entry.image ?? null;
+
+    for (const row of Object.values(entry.stores ?? {})) {
+      if (row.price < bestPrice) {
+        bestPrice = row.price;
+        bestImage = row.image ?? entry.image ?? null;
+      }
+    }
+  }
+
+  return bestImage ?? anyImage;
+}
+
 function renderItem(item) {
   const approved = item.lockedEan ? 1 : item.approvedEans.length;
   const open = state.expandedItemId === item.id;
@@ -429,6 +504,7 @@ function renderItem(item) {
 
   const card = el("article", { class: "item" },
     el("div", { class: "item__top" },
+      thumb(itemImage(item), item.label, "md"),
       el("div", { class: "grow" },
         el("div", { class: "item__label", text: item.label }),
         el("div", { class: "tiny muted", text: `${qtyLabel(item)} · ${approved} ${approved === 1 ? "godkjent produkt" : "godkjente produkter"}${item.lockedEan ? " (låst)" : ""}` }),
@@ -526,6 +602,7 @@ function renderApprovedList(item) {
 
     wrap.append(
       el("div", { class: "line" },
+        thumb(cheapest?.[1]?.image ?? entry?.image, entry?.name ?? ean, "sm"),
         el("div", { class: "line__main" },
           el("div", { class: "small", text: entry?.name ?? `Strekkode ${ean}` }),
           el("div", { class: "line__meta", text: cheapest ? `Billigst: ${chainLabel(cheapest[0])} ${formatKr(cheapest[1].price)}` : "Ingen prisdata ennå" }),
@@ -670,9 +747,7 @@ function candidateRow(cand, { actions = [], checkbox = null } = {}) {
 
   return el("div", { class: "cand" },
     checkbox,
-    cand.image
-      ? el("img", { class: "cand__img", src: cand.image, alt: "", loading: "lazy", referrerpolicy: "no-referrer" })
-      : el("div", { class: "cand__img" }),
+    thumb(cand.image, cand.name ?? cand.ean, "md"),
     el("div", { class: "cand__body" },
       el("div", { class: "cand__name", text: cand.name ?? `Strekkode ${cand.ean}` }),
       el("div", { class: "line__meta" },
@@ -887,18 +962,69 @@ async function openScanner() {
 // Priser
 // ---------------------------------------------------------------------------
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Starter prisoppdateringen og følger den til mål.
+ *
+ * Serveren svarer med en gang og gjør jobben i bakgrunnen, fordi hver
+ * strekkode koster ett API-kall med drøyt et sekunds mellomrom. Vi spør derfor
+ * jevnlig om framdrift i stedet for å vente på ett langt svar.
+ */
 async function doRefreshPrices(button, force = false) {
-  setBusy(button, true, "Henter…");
+  const alive = () => button?.isConnected;
+  setBusy(button, true, "Starter…");
+  const before = state.prices.builtAt;
+
   try {
-    state.prices = await refreshPrices({ force });
-    state.pricesStale = false;
-    compute();
-    render();
-    toast(`Priser oppdatert ${dateLabel(state.prices.builtAt)}.`);
+    const res = await startRefresh({ force });
+
+    if (res?.started === false) {
+      if (res.error) {
+        toast(res.error, "bad");
+        return;
+      }
+      // Fersk nok, eller allerede i gang. Begge deler er greit å si fra om.
+      toast(res.message ?? "Ingen oppdatering nødvendig.");
+      if (!res.alreadyRunning) return;
+    } else {
+      toast(res?.message ?? "Oppdatering startet i bakgrunnen.");
+    }
+
+    // Ti minutter er romslig: 150 strekkoder tar rundt tre.
+    const deadline = Date.now() + 10 * 60_000;
+
+    while (Date.now() < deadline) {
+      await sleep(5000);
+
+      const prices = await fetchPrices();
+      state.prices = prices;
+      const status = prices.refresh ?? {};
+
+      if (alive() && status.total) setBusy(button, true, `${status.done}/${status.total}`);
+
+      compute();
+      render();
+
+      if (!status.running) {
+        if (status.error) {
+          toast(`Oppdateringen feilet: ${status.error}`, "bad");
+        } else if (prices.builtAt !== before) {
+          state.pricesStale = false;
+          toast(`Priser oppdatert ${dateLabel(prices.builtAt)}.`);
+        } else {
+          // Jobben er ikke i gang og ingenting ble skrevet — den kom aldri opp.
+          toast("Oppdateringen ser ikke ut til å ha startet. Sjekk funksjonsloggen i Netlify.", "bad");
+        }
+        return;
+      }
+    }
+
+    toast("Oppdateringen tar uvanlig lang tid. Last siden på nytt for å se hvor den står.", "bad");
   } catch (err) {
     toast(err.message, "bad");
   } finally {
-    setBusy(button, false);
+    if (alive()) setBusy(button, false);
   }
 }
 

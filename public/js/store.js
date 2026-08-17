@@ -94,8 +94,20 @@ export async function saveList(list) {
   return saved;
 }
 
-export async function refreshPrices({ force = false } = {}) {
-  const prices = await api.rebuildPrices({ force });
+/**
+ * Ber serveren starte en prisoppdatering.
+ *
+ * Den bygger ikke matrisen mens vi venter. Full oppdatering er ett API-kall
+ * per strekkode og tar minutter, så serveren setter i gang en bakgrunnsjobb
+ * og svarer med en gang. Framdriften leses av fetchPrices().
+ */
+export async function startRefresh({ force = false } = {}) {
+  return api.rebuildPrices({ force });
+}
+
+/** Henter prismatrisen, inkludert status på en pågående oppdatering. */
+export async function fetchPrices() {
+  const prices = await api.getPrices();
   cache.set("prices", prices);
   return prices;
 }

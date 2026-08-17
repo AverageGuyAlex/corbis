@@ -6,6 +6,7 @@
   "description": "Handlekurv-optimaliserer for dagligvarer i Kristiansand",
   "scripts": {
     "test": "node --test",
+    "smoke": "node scripts/smoke.mjs",
     "dev": "netlify dev",
     "refresh": "netlify functions:invoke refresh",
     "discover": "netlify functions:invoke discover"

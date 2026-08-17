@@ -62,6 +62,20 @@ export function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Et positivt tall, eller null.
+ *
+ * Finnes fordi Number(null) er 0 og ikke NaN. Et manglende felt fra API-et ble
+ * dermed til prisen 0 kr, Number.isFinite(0) sa ja, og butikken med minst data
+ * vant hver eneste sammenligning med gratis varer. Ingen pris, ingen vekt og
+ * ingen kilopris er noen gang lovlig null i praksis, så vi krever > 0.
+ */
+export function positiveNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // ---------------------------------------------------------------------------
 // Statistikk
 // ---------------------------------------------------------------------------
@@ -77,10 +91,44 @@ export function median(nums) {
 /** Under dette antall datapunkter later vi ikke som vi vet hva som er normalpris. */
 const MIN_HISTORY_POINTS = 5;
 
+/** Hvor langt tilbake vi regner normalpris fra. */
+export const HISTORY_WINDOW_DAYS = 60;
+
+/** Antall datapunkter innenfor vinduet — altså hvor mye ferskt vi har. */
+export function recentPointCount(points, now = Date.now(), windowDays = HISTORY_WINDOW_DAYS) {
+  const cutoff = (now instanceof Date ? now.getTime() : now) - windowDays * 86_400_000;
+  let n = 0;
+  for (const p of points ?? []) {
+    const t = Date.parse(p?.date);
+    if (Number.isFinite(t) && t >= cutoff) n++;
+  }
+  return n;
+}
+
+/**
+ * Velger den mest brukbare av to prishistorikker.
+ *
+ * Fersk slår lang, og det er ikke åpenbart. /products/ean/ gir 25 punkter,
+ * men de er en stikkprøve spredt over produktets hele levetid — Kiwis
+ * kyllinghistorikk kom fra april 2023. /products/prices-bulk gir tettere og
+ * ferskere data for de kjedene den dekker. En regel som bare teller punkter
+ * ville valgt de gamle, og da blir hvert tilbud-merke UKJENT.
+ */
+export function pickBetterHistory(a, b, now = Date.now()) {
+  const ra = recentPointCount(a, now);
+  const rb = recentPointCount(b, now);
+  if (ra !== rb) return ra > rb ? a : b;
+  return (a?.length ?? 0) >= (b?.length ?? 0) ? a : b;
+}
+
 export const BADGE = {
   UKJENT: "UKJENT",
   TILBUD: "TILBUD",
-  LAVESTE_90D: "LAVESTE_90D",
+  // Bevisst uten tall i navnet. Hvor langt tilbake vi faktisk ser varierer:
+  // per-EAN-endepunktet gir rundt 25 dager, bulk-endepunktet opptil 90. Å kalle
+  // merket LAVESTE_90D ville vært en påstand vi ikke alltid kan dekke, så
+  // perioden følger med som `spanDays` og settes inn i teksten av UI-et.
+  LAVESTE: "LAVESTE",
   DYRT_NA: "DYRT_NA",
   NORMAL: "NORMAL",
 };
@@ -112,14 +160,15 @@ export function badgeFor(history, currentPrice, opts = {}) {
       const t = Date.parse(r?.date);
       return Number.isFinite(t) && t >= cutoff;
     })
-    .map((r) => Number(r.price))
-    .filter(Number.isFinite);
+    .map((r) => positiveNumber(r.price))
+    .filter((n) => n !== null);
 
   const empty = {
     badge: BADGE.UKJENT,
     medianPrice: null,
     pctVsMedian: null,
-    isLowest90: false,
+    isLowest: false,
+    spanDays: 0,
     points: windowPrices.length,
   };
 
@@ -128,14 +177,23 @@ export function badgeFor(history, currentPrice, opts = {}) {
   const med = median(windowPrices);
   if (med === null || med <= 0) return empty;
 
-  const allPrices = rows.map((r) => Number(r.price)).filter(Number.isFinite);
+  // "Laveste" måles mot alt vi har, ikke bare vinduet — og da må vi kunne si
+  // hvor langt tilbake det faktisk rekker.
+  const stamps = rows
+    .map((r) => Date.parse(r?.date))
+    .filter((t) => Number.isFinite(t));
+  const spanDays = stamps.length
+    ? Math.max(1, Math.round((Math.max(...stamps) - Math.min(...stamps)) / 86_400_000))
+    : 0;
+
+  const allPrices = rows.map((r) => positiveNumber(r.price)).filter((n) => n !== null);
   const lowestSeen = allPrices.length ? Math.min(...allPrices) : null;
 
-  const isLowest90 = lowestSeen !== null && current <= lowestSeen && current < med;
+  const isLowest = lowestSeen !== null && current <= lowestSeen && current < med;
   const pctVsMedian = Math.round((current / med - 1) * 100);
 
   let badge = BADGE.NORMAL;
-  if (isLowest90) badge = BADGE.LAVESTE_90D;
+  if (isLowest) badge = BADGE.LAVESTE;
   else if (current <= med * tilbudFactor) badge = BADGE.TILBUD;
   else if (current >= med * dyrtFactor) badge = BADGE.DYRT_NA;
 
@@ -143,7 +201,8 @@ export function badgeFor(history, currentPrice, opts = {}) {
     badge,
     medianPrice: round2(med),
     pctVsMedian,
-    isLowest90,
+    isLowest,
+    spanDays,
     points: windowPrices.length,
   };
 }
@@ -162,9 +221,9 @@ export function badgeFor(history, currentPrice, opts = {}) {
  * Returnerer null når vi ikke kan sammenligne ærlig.
  */
 function costFor(item, entry, storeRow) {
-  const qty = Number(item.qty) > 0 ? Number(item.qty) : 1;
-  const pack = Number(storeRow?.price);
-  if (!Number.isFinite(pack)) return null;
+  const qty = positiveNumber(item.qty) ?? 1;
+  const pack = positiveNumber(storeRow?.price);
+  if (pack === null) return null;
 
   if ((item.compareBy ?? "unit") === "pack") {
     return { cost: round2(pack * qty), perBase: null, basis: "pack" };
@@ -175,20 +234,21 @@ function costFor(item, entry, storeRow) {
 
   let perBase = null;
 
-  // Førstevalg: kilopris rett fra API-et.
-  const up = Number(storeRow.unitPrice);
-  if (Number.isFinite(up) && storeRow.unitPriceUnit) {
+  // Førstevalg: kilopris rett fra API-et. Den mangler ofte — særlig hos Kiwi
+  // og Coop — og da må vi regne den ut selv, ikke behandle den som null kroner.
+  const up = positiveNumber(storeRow.unitPrice);
+  if (up !== null && storeRow.unitPriceUnit) {
     const one = toBase(1, storeRow.unitPriceUnit);
     if (one && one.family === want.family && one.amount > 0) perBase = up / one.amount;
   }
 
   // Reserve: regn den ut fra pakkevekten.
   if (perBase === null) {
-    const w = toBase(entry?.weight, entry?.weightUnit);
+    const w = toBase(positiveNumber(entry?.weight), entry?.weightUnit);
     if (w && w.family === want.family && w.amount > 0) perBase = pack / w.amount;
   }
 
-  if (perBase === null || !Number.isFinite(perBase)) return null;
+  if (perBase === null || !Number.isFinite(perBase) || perBase <= 0) return null;
 
   return { cost: round2(perBase * want.amount), perBase: round2(perBase), basis: "unit" };
 }
@@ -238,6 +298,11 @@ export function buildMatrix({ items, prices, chains, now = new Date() }) {
             unitPrice: priced.perBase,
             weight: entry.weight ?? null,
             weightUnit: entry.weightUnit ?? null,
+            // Bildet følger kjeden først, varen som reserve. Når
+            // optimalisereren bytter til et annet produkt eller en annen
+            // kjede, bytter bildet seg selv — alt er nøklet på strekkode.
+            image: storeRow.image ?? entry.image ?? null,
+            url: storeRow.url ?? null,
             cost: priced.cost,
             basis: priced.basis,
             ...verdict,

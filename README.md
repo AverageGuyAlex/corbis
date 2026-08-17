@@ -46,6 +46,13 @@ Kjør testene for prislogikken:
 npm test
 ```
 
+Og røyktesten mot ekte API — denne fanger feil enhetstestene ikke kan se, som at
+et felt har ulik form på to endepunkter:
+
+```bash
+npm run smoke
+```
+
 ### 3. Legg den ut på Netlify
 
 Push til GitHub, koble repoet i Netlify, og legg inn de samme to variablene
@@ -71,25 +78,30 @@ Cron-jobbene starter av seg selv etter første publiserte deploy.
 ## Hvordan det virker
 
 ```
-Nettleser (telefon/PC)          Netlify Functions           Kassalapp API
-──────────────────────          ─────────────────           ─────────────
-index.html    handleliste ───►  list.mjs        ◄──► Blobs
+Nettleser (telefon/PC)          Netlify Functions            Kassalapp API
+──────────────────────          ─────────────────            ─────────────
+index.html    handleliste ───►  list.mjs         ◄──► Blobs
               + plan
-                                search.mjs      ─────────►  GET /products
-butikker.html oppsett     ───►  stores.mjs      ─────────►  GET /physical-stores
-                                candidates.mjs  ◄──► Blobs
+                                search.mjs       ─────────►  GET /products
+butikker.html oppsett     ───►  stores.mjs       ─────────►  GET /physical-stores
+                                candidates.mjs   ◄──► Blobs
 
-js/optimizer.js ◄── priser ───  prices.mjs      ◄──► Blobs
-  (all regning skjer her)
+js/optimizer.js ◄── priser ───  prices.mjs       ◄──► Blobs
+  (all regning skjer her)            │
+                                     │ POST starter jobben
+                                     ▼
+                                refresh-run.mjs  ─────────►  GET /products/ean/{ean}
+                                (background, 15 min)   ×N        + POST /prices-bulk
+                                     ▲                            (kun historikk)
+                                     │ HTTP                  └──► Blobs
+                                refresh.mjs
+                                (cron, daglig 05:00 UTC)
 
-                                refresh.mjs     ─────────►  POST /prices-bulk
-                                (cron, daglig)       └──► Blobs
-
-                                discover.mjs    ─────────►  GET /products
+                                discover.mjs     ─────────►  GET /products
                                 (cron, 15 varer per kjøring)
 ```
 
-Tre valg som styrer alt:
+Fire valg som styrer alt:
 
 1. **Kassalapp-tokenet forlater aldri serveren.** Nettleseren snakker bare med
    appens egne `/api/*`-funksjoner.
@@ -99,6 +111,28 @@ Tre valg som styrer alt:
 3. **Ingen daglige deployer.** Cron-jobbene skriver til Netlify Blobs, ikke til
    repoet. En produksjonsdeploy koster 15 credits; daglig bygging ville kostet
    450 credits i måneden. Slik det er nå koster drift under 30.
+4. **Prisene hentes én strekkode om gangen, i en bakgrunnsfunksjon.** Det er
+   dyrere enn bulk-endepunktet, og det er hele poenget — se under.
+
+### Hvorfor prisene hentes «dyrt»
+
+Den opplagte løsningen er `POST /products/prices-bulk`: 100 strekkoder i ett
+kall. Vi brukte den først, og den er feil. Målt på samme vare
+(Lettmelk Q 1,75 l, EAN 7048840081950):
+
+| Endepunkt | Kjeder | Billigste funnet |
+|---|---|---|
+| `prices-bulk` | 2 — Spar, Meny | 31,90 |
+| `/products/ean/{ean}` | 6 — inkl. **Kiwi 28,80**, Coop 29,50 | **28,80** |
+
+Bulk utelot Kiwi, som var billigst. En app som sender deg til Meny for 31,90 når
+Kiwi har 28,80 gjør det motsatte av jobben sin. Derfor ett kall per strekkode,
+med 1,1 sekunds mellomrom for å holde rate-limiten — og derfor en
+bakgrunnsfunksjon, som har 15 minutter i stedet for 30 sekunder.
+
+Bulk beholdes til én ting: **dypere prishistorikk**. Per-EAN gir 25 punkter
+spredt over produktets levetid, bulk gir tette daglige punkter for de kjedene
+den dekker. Det er historikken tilbud-merkene bygger på.
 
 ### Filene som betyr noe
 
@@ -106,24 +140,50 @@ Tre valg som styrer alt:
 |---|---|
 | `public/js/optimizer.js` | All prisregning. Rene funksjoner, ingen nettverk. Testet i `test/optimizer.test.js` |
 | `netlify/lib/kassal.mjs` | Kø og backoff mot Kassalapp, så vi aldri bryter 60/min |
-| `netlify/lib/pricematrix.mjs` | Bygger den daglige prismatrisen i 2–3 kall |
+| `netlify/lib/pricematrix.mjs` | Bygger prismatrisen: ett kall per strekkode, pluss bulk til historikk |
+| `netlify/lib/chains.mjs` | Oversetter butikkoder til priskoder. Coop trenger dette — se under |
+| `netlify/functions/refresh-run.mjs` | Bakgrunnsfunksjonen som gjør den tunge jobben |
 | `netlify/functions/discover.mjs` | Leter etter nye produkter, 15 varer per kjøring |
+| `scripts/smoke.mjs` | Røyktest mot ekte API. Denne fanger det enhetstestene ikke kan |
+
+### To kodesett for Coop
+
+Kassalapp merker alle Coop-**priser** med `COOP_NO`, men Coop-**butikker** med
+`COOP_EXTRA`, `COOP_PRIX`, `COOP_MEGA`, `COOP_OBS` og `COOP_MARKED`. Målt:
+`store=COOP_EXTRA` gir 0 produkter, `store=COOP_NO` gir 100.
+
+Det betyr noe her: av de 100 butikkene innenfor 12 km av Kristiansand sentrum er
+**42 Coop**. Uten oversettelsen i `chains.mjs` forsvinner byens største
+kjedetilstedeværelse helt ut av sammenligningen.
 
 ### Tilbud-merkene
 
 Kassalapp har ikke noe tilbud-endepunkt, så merkene regnes ut fra varens egen
-90-dagers historikk i den kjeden:
+prishistorikk i den kjeden:
 
 | Merke | Betyr |
 |---|---|
 | **Tilbud −25 %** | Minst 15 % under medianen siste 60 dager |
-| **Laveste på 90 d** | Lavere enn noe vi har registrert, og under medianen |
+| **Laveste på N d** | Lavere enn noe vi har registrert, og under medianen. `N` er hvor langt historikken faktisk rekker — mellom 25 og 90 dager |
 | **Dyrt nå** | Minst 5 % over medianen — vent hvis du kan |
-| *(ingen merke)* | Normalpris, eller for lite historikk til å si noe |
+| *(ingen merke)* | Normalpris, eller for lite fersk historikk til å si noe |
 
 Median, ikke gjennomsnitt: én rar dag i historikken skal ikke flytte hva vi
 kaller normalpris. En vare som «settes ned» til sin egen normalpris får ikke
 tilbud-merke — det er hele poenget.
+
+Perioden står i merket og er ikke pyntet på. Kassalapp gir ikke like dyp
+historikk for alle kjeder, og et merke som påsto «90 dager» når vi hadde 24 ville
+vært en påstand vi ikke kan dekke.
+
+### Produktbildene
+
+Bildene kommer fra Kassalapp (`bilder.ngdata.no`, `cdcimg.coop.no`,
+`bilder.kolonial.no`, `images.oda.com`). Dekningen var 100 % i utvalget vi
+målte. De lagres **per strekkode og per kjede** i prismatrisen, så når
+optimalisereren bytter til et annet produkt — for eksempel fordi et
+First Price-alternativ ble billigst — følger bildet automatisk med. Det krever
+ingen egen logikk; det faller ut av at alt er nøklet på strekkode.
 
 ---
 
@@ -134,6 +194,15 @@ tilbud-merke — det er hele poenget.
   Obs-varehus kan avvike fra kjedeprisen.
 - **Prisene hentes én gang i døgnet og kan være feil.** Dette er
   beslutningsstøtte, ikke en garanti i kassa.
+- **Coop-prisene skiller ikke mellom butikkformatene.** Kassalapp har ett
+  prissett for Extra, Prix, Mega og Obs, som i virkeligheten har ulike priser.
+  Appen sier fra om dette i planen.
+- **Tilbud-merkene dukker bare opp der historikken er fersk nok.** I vår måling
+  hadde omtrent halvparten av kjede-seriene nok daglige datapunkter. De øvrige
+  får ikke merke i stedet for å få et gjettet merke.
+- **Rema 1000 har tynn dekning i Kassalapp.** De har 14 butikker i Kristiansand,
+  men få priser i datagrunnlaget. Rema kan derfor havne nederst i rangeringen
+  fordi vi mangler data, ikke fordi de er dyre. Kolonnen «Dekker» viser dette.
 - **Løsvekt mangler ofte strekkode** — bananer, kjøtt over disk, løse
   grønnsaker. Slike varer markeres «kan ikke sammenlignes» framfor å gi et
   misvisende tall.

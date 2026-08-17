@@ -1,16 +1,18 @@
 /**
- * GET  /api/prices        → prismatrisen slik cron-jobben sist bygde den
- * POST /api/prices        → bygg den på nytt nå ("oppdater priser")
- * POST /api/prices?force=1 → bygg på nytt selv om den er fersk
+ * GET  /api/prices          → prismatrisen + status på en eventuell oppdatering
+ * POST /api/prices          → start en oppdatering i bakgrunnen
+ * POST /api/prices?force=1  → start selv om matrisen er fersk
  *
- * Kassalapp henter prisene sine én gang i døgnet, så den daglige cron-jobben
- * er nok i praksis. Knappen finnes for de gangene du vil være sikker før du
- * går ut døra.
+ * POST bygger ikke matrisen selv. Full oppdatering er ett API-kall per
+ * strekkode og tar minutter, langt over det en vanlig funksjon har. Den
+ * starter derfor bakgrunnsfunksjonen og svarer med en gang, og UI-et følger
+ * med på framdriften gjennom GET.
  */
 
 import { requireKey, json, errorResponse } from "../lib/auth.mjs";
 import { readJSON, KEYS } from "../lib/blobs.mjs";
-import { buildPriceMatrix } from "../lib/pricematrix.mjs";
+import { collectEans, estimateSeconds } from "../lib/pricematrix.mjs";
+import { triggerRefresh } from "../lib/trigger.mjs";
 
 export const config = { path: "/api/prices" };
 
@@ -23,7 +25,11 @@ export default async (req) => {
 
   try {
     if (req.method === "GET") {
-      return json(200, await readJSON(KEYS.prices));
+      const [prices, refresh] = await Promise.all([
+        readJSON(KEYS.prices),
+        readJSON(KEYS.refresh),
+      ]);
+      return json(200, { ...prices, refresh });
     }
 
     if (req.method !== "POST") {
@@ -31,15 +37,45 @@ export default async (req) => {
     }
 
     const force = new URL(req.url).searchParams.get("force") === "1";
-    const existing = await readJSON(KEYS.prices);
-    const age = existing?.builtAt ? Date.now() - Date.parse(existing.builtAt) : Infinity;
+    const [prices, refresh, list] = await Promise.all([
+      readJSON(KEYS.prices),
+      readJSON(KEYS.refresh),
+      readJSON(KEYS.list),
+    ]);
 
-    if (!force && Number.isFinite(age) && age < FRESH_MS) {
-      return json(200, { ...existing, skipped: true, reason: "Prisene er under 10 minutter gamle." });
+    // En kjøring som allerede er i gang skal ikke dobles opp.
+    const runAge = refresh?.startedAt ? Date.now() - Date.parse(refresh.startedAt) : Infinity;
+    if (refresh?.running && runAge < 15 * 60_000) {
+      return json(202, {
+        started: false,
+        alreadyRunning: true,
+        refresh,
+        message: "En oppdatering er allerede i gang.",
+      });
     }
 
-    const matrix = await buildPriceMatrix();
-    return json(200, matrix);
+    const age = prices?.builtAt ? Date.now() - Date.parse(prices.builtAt) : Infinity;
+    if (!force && Number.isFinite(age) && age < FRESH_MS) {
+      return json(200, {
+        started: false,
+        skipped: true,
+        refresh,
+        message: "Prisene er under 10 minutter gamle.",
+      });
+    }
+
+    const result = await triggerRefresh();
+    if (!result.started) {
+      return json(503, { started: false, error: result.reason });
+    }
+
+    const eanCount = collectEans(list).length;
+    return json(202, {
+      started: true,
+      eanCount,
+      estimatedSeconds: estimateSeconds(eanCount),
+      message: `Oppdaterer ${eanCount} produkter i bakgrunnen.`,
+    });
   } catch (err) {
     return errorResponse(err);
   }
