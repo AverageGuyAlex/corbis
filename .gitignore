@@ -1,0 +1,9 @@
+node_modules/
+.netlify/
+# Lages av netlify-cli for edge functions. Corbis bruker ingen, så den er støy.
+deno.lock
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

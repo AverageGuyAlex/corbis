@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Corbis — billigste handletur</title>
+  <meta name="description" content="Skriv handlelista, få vite hvilke butikker i Kristiansand som er billigst for akkurat den lista.">
+  <meta name="theme-color" content="#2f6b3d">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="css/corbis.css">
+</head>
+<body>
+
+  <!-- Passordvakt. Fylles av app.js når det ikke finnes et lagret passord. -->
+  <div id="gate" class="wrap" hidden></div>
+
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="wrap topbar__inner">
+        <a class="brand" href="index.html">
+          <b>Corbis</b>
+          <span>Kristiansand</span>
+        </a>
+        <a class="btn btn--sm" href="butikker.html">Butikker</a>
+        <button class="btn btn--sm" id="refresh" title="Hent nye priser fra Kassalapp">Oppdater</button>
+        <button class="btn btn--sm btn--ghost" id="logout" title="Glem passordet på denne enheten">Logg ut</button>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <div id="toast" aria-live="polite"></div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab" id="tab-plan" role="tab" aria-selected="true" aria-controls="panel-plan">Plan</button>
+        <button class="tab" id="tab-liste" role="tab" aria-selected="false" aria-controls="panel-liste">Liste</button>
+        <button class="tab" id="tab-nytt" role="tab" aria-selected="false" aria-controls="panel-nytt">
+          Nytt <span id="tab-count"></span>
+        </button>
+      </div>
+
+      <section class="panel" id="panel-plan" role="tabpanel" aria-labelledby="tab-plan"></section>
+      <section class="panel" id="panel-liste" role="tabpanel" aria-labelledby="tab-liste" hidden></section>
+      <section class="panel" id="panel-nytt" role="tabpanel" aria-labelledby="tab-nytt" hidden></section>
+    </main>
+  </div>
+
+  <dialog id="dialog"></dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

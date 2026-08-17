@@ -1,0 +1,49 @@
+# Corbis — Netlify-konfigurasjon
+#
+# Statiske filer ligger i public/ slik at kildekoden til funksjonene og
+# node_modules ikke blir publisert som nedlastbare filer.
+
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+# ---------------------------------------------------------------------------
+# Cron-jobbene. Tidene er i UTC.
+#   05:00 UTC = 07:00 norsk sommertid / 06:00 vintertid
+#
+# Disse skriver til Netlify Blobs, ikke til repoet — derfor trigger de
+# ingen deploy, og koster ingen deploy-credits.
+# ---------------------------------------------------------------------------
+
+# Henter nye priser for alle godkjente strekkoder i handlelista.
+[functions."refresh"]
+  schedule = "0 5 * * *"
+
+# Leter etter nye produkter som matcher varene dine. Tar 15 varer per
+# kjøring for å holde seg innenfor tidsgrensen på 30 sekunder.
+[functions."discover"]
+  schedule = "30 5 * * *"
+
+# ---------------------------------------------------------------------------
+# Sikkerhetsheadere. Appen laster ingenting eksternt, så CSP-en kan være streng.
+# ---------------------------------------------------------------------------
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "no-referrer"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' https: data:; style-src 'self'; script-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'"
+
+# Produktbilder kommer fra kjedenes egne domener, derfor img-src https: over.
+
+[[headers]]
+  for = "/css/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"

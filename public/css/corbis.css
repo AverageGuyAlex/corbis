@@ -1,0 +1,504 @@
+/* ==========================================================================
+   Corbis — designsystem
+   Mobil først: appen brukes stående i en butikk, med én hånd.
+   Lys som standard, mørk når systemet ber om det.
+   ========================================================================== */
+
+:root {
+  --bg: #f7f6f1;
+  --surface: #ffffff;
+  --surface-2: #f1efe7;
+  --text: #1e2317;
+  --muted: #6b7263;
+  --line: #dcd9cd;
+
+  --primary: #2f6b3d;
+  --primary-soft: #e4efe4;
+  --primary-ink: #ffffff;
+
+  --good: #1f7a4d;
+  --good-soft: #dcf1e4;
+  --warn: #8a5a00;
+  --warn-soft: #fbeecd;
+  --bad: #9a3324;
+  --bad-soft: #f8e3de;
+  --neutral-soft: #eceae1;
+
+  --radius: 14px;
+  --radius-sm: 9px;
+  --shadow: 0 1px 2px rgb(30 35 23 / 8%), 0 4px 14px rgb(30 35 23 / 6%);
+
+  --tap: 44px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14170f;
+    --surface: #1d211a;
+    --surface-2: #262b21;
+    --text: #eceade;
+    --muted: #a0a696;
+    --line: #343a2c;
+
+    --primary: #7fc08c;
+    --primary-soft: #24321f;
+    --primary-ink: #10160c;
+
+    --good: #7fc08c;
+    --good-soft: #1f3226;
+    --warn: #e0b566;
+    --warn-soft: #33290f;
+    --bad: #e79184;
+    --bad-soft: #3a201b;
+    --neutral-soft: #2a2f24;
+
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 4px 14px rgb(0 0 0 / 25%);
+
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  padding-bottom: 4rem;
+}
+
+h1, h2, h3 { line-height: 1.25; margin: 0; font-weight: 650; }
+h1 { font-size: 1.35rem; }
+h2 { font-size: 1.1rem; }
+h3 { font-size: 0.95rem; }
+p { margin: 0 0 0.6rem; }
+
+a { color: var(--primary); }
+
+/* --- Ramme ---------------------------------------------------------------- */
+
+.wrap {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 0.9rem;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 56px;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  margin-right: auto;
+  text-decoration: none;
+  color: inherit;
+}
+.brand b { font-size: 1.15rem; letter-spacing: -0.01em; }
+.brand span { font-size: 0.72rem; color: var(--muted); }
+
+/* På smal skjerm er det ikke plass til alt. Knappetekst skal aldri brytes
+   over to linjer — da blir toppraden skjev. Undertittelen kan vike i stedet. */
+.topbar__inner .btn { white-space: nowrap; padding: 0 0.6rem; }
+@media (max-width: 420px) {
+  .brand span { display: none; }
+}
+
+/* --- Faner --------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 0.3rem;
+  padding: 0.5rem 0 0.7rem;
+}
+
+.tab {
+  flex: 1;
+  min-height: var(--tap);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+.tab[aria-selected="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+}
+
+.panel[hidden] { display: none; }
+
+/* --- Kort ---------------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0.9rem;
+  margin-bottom: 0.8rem;
+  box-shadow: var(--shadow);
+}
+
+.card--flat { box-shadow: none; background: var(--surface-2); }
+
+.card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.card__head h2, .card__head h3 { margin-right: auto; }
+
+.muted { color: var(--muted); }
+.small { font-size: 0.82rem; }
+.tiny { font-size: 0.74rem; }
+.nowrap { white-space: nowrap; }
+.right { text-align: right; }
+.stack > * + * { margin-top: 0.5rem; }
+
+/* Marg-verktøy. Vi bruker klasser og ikke style="..."-attributter, fordi
+   CSP-en i netlify.toml er style-src 'self' — inline stiler blir blokkert av
+   nettleseren i produksjon, selv om de virker fint på en enkel testserver. */
+.mt-xs { margin-top: 0.4rem; }
+.mt-s { margin-top: 0.5rem; }
+.mt-m { margin-top: 0.6rem; }
+.my-m { margin: 0.6rem 0; }
+.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- Knapper ------------------------------------------------------------- */
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn {
+  min-height: var(--tap);
+  padding: 0 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+}
+.btn:hover:not(:disabled) { border-color: var(--primary); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn { white-space: nowrap; }
+
+/* To knapper side om side får ikke plass på en telefon. Stable dem i stedet
+   for å la teksten brytes midt i en setning. */
+@media (max-width: 420px) {
+  .row--stack { flex-direction: column; align-items: stretch; }
+  .row--stack > .btn { width: 100%; }
+}
+
+.btn--primary { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
+.btn--sm { min-height: 34px; padding: 0 0.6rem; font-size: 0.82rem; }
+.btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn--ghost:hover { color: var(--bad); border-color: var(--line); }
+.btn--good { background: var(--good-soft); border-color: transparent; color: var(--good); }
+.btn--block { width: 100%; }
+
+/* --- Skjemafelt ---------------------------------------------------------- */
+
+input, select, textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 0.55rem 0.6rem;
+  min-height: var(--tap);
+  width: 100%;
+}
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+input[type="checkbox"] { width: 22px; height: 22px; min-height: 0; accent-color: var(--primary); flex: none; }
+input[type="number"] { max-width: 6.5rem; }
+
+label.field { display: block; }
+label.field > span { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; }
+
+/* --- Merkelapper --------------------------------------------------------- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.42rem;
+  border-radius: 999px;
+  background: var(--neutral-soft);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.badge--tilbud { background: var(--good-soft); color: var(--good); }
+.badge--laveste { background: var(--good); color: var(--primary-ink); }
+.badge--dyrt { background: var(--warn-soft); color: var(--warn); }
+.badge--mangler { background: var(--bad-soft); color: var(--bad); }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+}
+
+/* --- Planen -------------------------------------------------------------- */
+
+.hero {
+  background: var(--primary-soft);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 0.8rem;
+}
+.hero__total {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.hero__sub { color: var(--muted); font-size: 0.85rem; }
+.hero__save {
+  display: inline-block;
+  margin-top: 0.5rem;
+  background: var(--good);
+  color: var(--primary-ink);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.stop {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 0.6rem;
+  overflow: hidden;
+}
+.stop__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.stop__n {
+  flex: none;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-ink);
+  display: grid; place-items: center;
+  font-size: 0.8rem; font-weight: 700;
+}
+.stop__name { font-weight: 650; margin-right: auto; }
+
+.line {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.8rem;
+  border-top: 1px solid var(--line);
+}
+.line:first-child { border-top: none; }
+.line__main { flex: 1; min-width: 0; }
+.line__name { font-weight: 550; }
+.line__meta { font-size: 0.76rem; color: var(--muted); }
+.line__price { font-weight: 650; white-space: nowrap; }
+
+/* --- Rangeringstabell ---------------------------------------------------- */
+
+.rank { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.rank th, .rank td { text-align: left; padding: 0.45rem 0.4rem; border-bottom: 1px solid var(--line); }
+.rank th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 700; }
+.rank td.num, .rank th.num { text-align: right; white-space: nowrap; }
+.rank tr.is-plan td { background: var(--primary-soft); font-weight: 600; }
+.scroll-x { overflow-x: auto; }
+
+/* --- Varekort på lista --------------------------------------------------- */
+
+.item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 0.7rem 0.8rem;
+  margin-bottom: 0.6rem;
+}
+.item__top { display: flex; align-items: flex-start; gap: 0.5rem; }
+.item__label { font-weight: 650; margin-right: auto; }
+.item__detail { border-top: 1px solid var(--line); margin-top: 0.6rem; padding-top: 0.6rem; }
+.item__detail[hidden] { display: none; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+/* --- Kandidatliste ------------------------------------------------------- */
+
+.cand {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+.cand:first-of-type { border-top: none; }
+.cand__img {
+  flex: none;
+  width: 46px; height: 46px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  object-fit: contain;
+}
+.cand__body { flex: 1; min-width: 0; }
+.cand__name { font-weight: 550; font-size: 0.92rem; }
+
+/* --- Meldinger ----------------------------------------------------------- */
+
+.note {
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+  padding: 0.55rem 0.7rem;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 0.85rem;
+  margin-bottom: 0.6rem;
+}
+.note--bad { border-color: var(--bad); background: var(--bad-soft); color: var(--bad); }
+.note--info { border-color: var(--primary); background: var(--primary-soft); color: var(--text); }
+
+.empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--muted);
+}
+.empty strong { display: block; color: var(--text); margin-bottom: 0.3rem; }
+
+.spinner {
+  width: 15px; height: 15px;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2s; } }
+
+.count {
+  background: var(--bad);
+  color: #fff;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+}
+
+/* --- Passportvakt -------------------------------------------------------- */
+
+.gate {
+  max-width: 22rem;
+  margin: 15vh auto 0;
+  text-align: center;
+}
+.gate .card { text-align: left; }
+
+/* --- Skanner ------------------------------------------------------------- */
+
+.scanbox { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; }
+.scanbox video { display: block; width: 100%; max-height: 55vh; object-fit: cover; }
+.scanbox__frame {
+  position: absolute; inset: 22% 12%;
+  border: 3px solid rgb(255 255 255 / 85%);
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+/* --- Dialog -------------------------------------------------------------- */
+
+dialog {
+  width: min(38rem, calc(100vw - 1.2rem));
+  max-height: 88vh;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: 1rem;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 25%);
+}
+dialog::backdrop { background: rgb(0 0 0 / 45%); }
+
+/* --- Butikkoppsett ------------------------------------------------------- */
+
+.store {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+.store:first-of-type { border-top: none; }
+.store__body { flex: 1; min-width: 0; }
+.store__name { font-weight: 600; }
+
+.footer {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--line);
+  padding: 0.6rem 0;
+  z-index: 15;
+}
+
+@media (min-width: 640px) {
+  .grid2 { grid-template-columns: repeat(3, 1fr); }
+}

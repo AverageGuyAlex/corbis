@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Butikker — Corbis</title>
+  <meta name="theme-color" content="#2f6b3d">
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="css/corbis.css">
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="wrap topbar__inner">
+      <a class="brand" href="index.html">
+        <b>Corbis</b>
+        <span>Butikkoppsett</span>
+      </a>
+      <a class="btn btn--sm" href="index.html">Tilbake</a>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div id="toast" aria-live="polite"></div>
+
+    <section class="card">
+      <div class="card__head"><h2>Hvor handler du?</h2></div>
+      <p class="small muted">
+        Norske kjeder har samme priser i hele landet. Det appen trenger å vite, er
+        derfor hvilke kjeder som har en butikk du faktisk kan gå inn i — og hvor langt
+        unna den nærmeste er.
+      </p>
+
+      <div class="grid2">
+        <label class="field">
+          <span>Breddegrad</span>
+          <input type="number" id="lat" step="0.0001" value="58.1467">
+        </label>
+        <label class="field">
+          <span>Lengdegrad</span>
+          <input type="number" id="lng" step="0.0001" value="7.9956">
+        </label>
+        <label class="field">
+          <span>Radius (km)</span>
+          <input type="number" id="km" min="1" max="60" step="1" value="12">
+        </label>
+      </div>
+
+      <div class="row row--stack mt-m">
+        <button class="btn" id="locate">Bruk min posisjon</button>
+        <button class="btn btn--primary grow" id="search">Søk opp butikker</button>
+      </div>
+      <p class="tiny muted mt-s" id="home-label">Standard: Kristiansand sentrum</p>
+    </section>
+
+    <div id="results"></div>
+  </main>
+
+  <div class="footer">
+    <div class="wrap row">
+      <span class="small muted grow" id="summary">Ingen butikker valgt</span>
+      <button class="btn btn--primary" id="save">Lagre valg</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/butikker.js"></script>
+</body>
+</html>
