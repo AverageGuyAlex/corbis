@@ -12,6 +12,7 @@
 
 import { requireKey, json, errorResponse } from "../lib/auth.mjs";
 import { searchCandidates, lookupEan } from "../lib/products.mjs";
+import { positiveNumber } from "../../public/js/optimizer.js";
 
 export const config = { path: "/api/search" };
 
@@ -44,17 +45,22 @@ export default async (req) => {
       return json(400, { error: "Søkeordet må ha minst 3 tegn." });
     }
 
-    const categoryIdRaw = Number(url.searchParams.get("categoryId"));
-    const pagesRaw = Number(url.searchParams.get("pages"));
+    // positiveNumber, ikke Number: searchParams.get() gir null når parameteren
+    // mangler, og Number(null) er 0 — ikke NaN. Med Number.isInteger(0) === true
+    // sendte vi category_id=0 til Kassalapp, som svarte
+    // 422 "The selected category id is invalid" på hvert eneste søk.
+    // Samme linje gjorde at pages ble 1 i stedet for 3.
+    const categoryId = positiveNumber(url.searchParams.get("categoryId"));
+    const pages = positiveNumber(url.searchParams.get("pages")) ?? 3;
 
     const result = await searchCandidates({
       q,
-      categoryId: Number.isInteger(categoryIdRaw) ? categoryIdRaw : null,
+      categoryId,
       include: splitWords(url.searchParams.get("include")),
       exclude: splitWords(url.searchParams.get("exclude")),
       // Hver side er ett nettverkskall med 1,1 sekunds mellomrom. Tre sider
       // tar rundt 3 sekunder og gir nok distinkte varer å velge blant.
-      pages: Number.isFinite(pagesRaw) ? Math.min(Math.max(pagesRaw, 1), 3) : 3,
+      pages: Math.min(Math.max(pages, 1), 3),
     });
 
     return json(200, { query: q, ...result });

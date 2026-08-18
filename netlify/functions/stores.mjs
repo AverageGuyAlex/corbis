@@ -12,6 +12,7 @@
 import { requireKey, json, errorResponse, readBody } from "../lib/auth.mjs";
 import { kassalGetAll } from "../lib/kassal.mjs";
 import { readJSON, writeJSON, KEYS, DEFAULTS } from "../lib/blobs.mjs";
+import { positiveNumber } from "../../public/js/optimizer.js";
 import {
   isGroceryStoreGroup,
   priceChainFor,
@@ -127,14 +128,16 @@ export default async (req) => {
         return json(400, { error: "home.lat og home.lng må være tall." });
       }
 
-      const km = Number(body.km);
+      // positiveNumber: en manglende radius ble ellers Number(null) === 0, som
+      // klampes til 1 km — og da finner søket nesten ingen butikker.
+      const km = positiveNumber(body.km);
       const saved = {
         home: {
           lat,
           lng,
           label: String(body.home?.label ?? "").slice(0, 80) || "Hjemme",
         },
-        km: Number.isFinite(km) ? Math.min(Math.max(km, 1), 60) : DEFAULTS.stores.km,
+        km: km === null ? DEFAULTS.stores.km : Math.min(Math.max(km, 1), 60),
         selected: (Array.isArray(body.selected) ? body.selected : [])
           // Frontenden sender butikkformatet; priskjeden utleder vi selv, slik
           // at en gammel lagret liste uten `chain` fortsatt virker.
@@ -181,8 +184,8 @@ export default async (req) => {
     // Søk opp butikker rundt et punkt.
     const lat = Number(url.searchParams.get("lat") ?? saved.home?.lat);
     const lng = Number(url.searchParams.get("lng") ?? saved.home?.lng);
-    const kmParam = Number(url.searchParams.get("km") ?? saved.km);
-    const km = Number.isFinite(kmParam) ? Math.min(Math.max(kmParam, 1), 60) : 12;
+    const kmParam = positiveNumber(url.searchParams.get("km")) ?? positiveNumber(saved.km);
+    const km = kmParam === null ? DEFAULTS.stores.km : Math.min(Math.max(kmParam, 1), 60);
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return json(400, { error: "Mangler lat/lng." });

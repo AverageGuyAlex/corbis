@@ -99,6 +99,45 @@ console.log("\n=== Strekkodeoppslag ===");
   check("Coop er med", chains.includes("COOP_NO"), "Coop har 42 butikker i Kristiansand");
 }
 
+// ---------------------------------------------------------------------------
+// Endepunktene, ikke bare biblioteket.
+//
+// Dette avsnittet finnes fordi en feil slapp helt ut til brukeren: søket ga
+// 422 fra Kassalapp på hvert eneste kall, mens testene over var grønne. Årsaken
+// lå i search.mjs, ikke i products.mjs — searchParams.get() gir null når en
+// parameter mangler, Number(null) er 0, og appen sendte category_id=0.
+//
+// Bibliotektester kan ikke se sånt. Vi må kalle håndtereren slik nettleseren
+// gjør det.
+// ---------------------------------------------------------------------------
+
+console.log("\n=== Endepunktene (slik nettleseren kaller dem) ===");
+{
+  process.env.APP_PASSWORD = "smoketest";
+  const KEY = { "x-corbis-key": "smoketest" };
+
+  const search = (await import("../netlify/functions/search.mjs")).default;
+
+  // Nøyaktig den URL-en frontenden lager når du legger til en vare: ingen
+  // categoryId, ingen pages.
+  const res = await search(new Request("http://x/api/search?q=melk", { headers: KEY }));
+  const body = await res.json();
+
+  check("GET /api/search uten valgfrie parametre", res.status === 200, `HTTP ${res.status} ${body.error ?? ""}`);
+  check("gir faktiske kandidater", (body.candidates?.length ?? 0) > 0, `${body.candidates?.length ?? 0} treff`);
+
+  const medEkskludering = await search(
+    new Request("http://x/api/search?q=melk&exclude=sjokolade", { headers: KEY }),
+  );
+  check("GET /api/search med utelukk-ord", medEkskludering.status === 200, `HTTP ${medEkskludering.status}`);
+
+  const kort = await search(new Request("http://x/api/search?q=ka", { headers: KEY }));
+  check("for kort søk avvises pent med 400", kort.status === 400);
+
+  const utenNokkel = await search(new Request("http://x/api/search?q=melk"));
+  check("uten passord gir 401", utenNokkel.status === 401);
+}
+
 console.log("\n=== Coop-kodeoversettelsen ===");
 {
   check("COOP_EXTRA → COOP_NO", priceChainFor("COOP_EXTRA") === "COOP_NO");
