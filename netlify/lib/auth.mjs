@@ -42,7 +42,7 @@ export function requireKey(req) {
   if (!expected) {
     return json(500, {
       error:
-        "APP_PASSWORD mangler. Legg den inn under Site configuration → Environment variables i Netlify (eller i .env lokalt).",
+        "APP_PASSWORD mangler. Legg den inn under Project configuration → Environment variables i Netlify, og kjør en ny deploy (eller sett den i .env lokalt).",
     });
   }
 

@@ -55,9 +55,23 @@ npm run smoke
 
 ### 3. Legg den ut på Netlify
 
-Push til GitHub, koble repoet i Netlify, og legg inn de samme to variablene
-under **Site configuration → Environment variables**. Uten dem svarer appen
-med en tydelig feilmelding om hva som mangler.
+Push til GitHub og koble repoet i Netlify: **Add new site → Import an existing
+project → GitHub → corbis**.
+
+**Legg inn miljøvariablene før første deploy.** På oppsettsiden, før du trykker
+deploy, finnes knappen **Add environment variables**. Legg inn `KASSAL_TOKEN` og
+`APP_PASSWORD` der, og huk av «Contains secret values» på begge.
+
+Gjør du det etterpå i stedet, finner du dem under **Project configuration →
+Environment variables** — men da må du kjøre en ny deploy for at de skal tre i
+kraft, og det koster credits en gang til. Uten variablene svarer appen med en
+tydelig feilmelding om hva som mangler.
+
+Med CLI-en, hvis du heller vil det:
+
+```bash
+npx netlify env:import .env
+```
 
 Cron-jobbene starter av seg selv etter første publiserte deploy.
 

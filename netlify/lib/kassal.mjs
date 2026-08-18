@@ -64,7 +64,7 @@ function token() {
   if (!t) {
     throw new KassalError(
       500,
-      "KASSAL_TOKEN mangler. Legg den inn under Site configuration → Environment variables i Netlify (eller i .env lokalt).",
+      "KASSAL_TOKEN mangler. Legg den inn under Project configuration → Environment variables i Netlify, og kjør en ny deploy (eller sett den i .env lokalt).",
     );
   }
   return t;
