@@ -85,6 +85,9 @@ function sanitiseItem(raw, index, usedIds) {
     approvedEans: cleanEans(raw?.approvedEans),
     rejectedEans: cleanEans(raw?.rejectedEans),
     lockedEan,
+    // På som standard: alle butikker selger dopapir, bare ikke akkurat ditt
+    // merke. Slå den av for varer der bare det ene produktet duger.
+    allowSubstitute: raw?.allowSubstitute !== false,
     note: raw?.note ? String(raw.note).slice(0, 200) : null,
   };
 }

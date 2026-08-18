@@ -170,6 +170,39 @@ Det betyr noe her: av de 100 butikkene innenfor 12 km av Kristiansand sentrum er
 **42 Coop**. Uten oversettelsen i `chains.mjs` forsvinner byens største
 kjedetilstedeværelse helt ut av sammenligningen.
 
+### Erstatninger — hvorfor en vare ikke er en strekkode
+
+En linje på handlelista er et *begrep*, ikke en fast liste strekkoder. Alle
+butikker selger toalettpapir, bare ikke akkurat det merket du krysset av: Kiwi
+har First Price, Rema har Prima, Coop har X-tra. Låser vi varen til noen få
+strekkoder, blir den «mangler» i halve utvalget, og butikken rangeres ned av en
+grunn som ikke har med pris å gjøre.
+
+Rekkefølgen per vare og kjede er derfor:
+
+1. **Godkjent strekkode** — har kjeden en av dine, brukes den
+2. **Erstatning** — ellers billigste vare i samme kategori, merket i planen
+3. **Mangler** — først da, og det blir sjeldent
+
+To filtre avgjør hva som er en gyldig erstatning, og begge er nødvendige:
+
+| Filter | Uten det |
+|---|---|
+| **Ordgrense** | «cola» traff «ruc**cola**» og «cho**cola**te», fordi Kassalapp søker på delstreng |
+| **Samme kategori** | «gulost» traff «Lesgards Marmelade til Gulost», som er syltetøy |
+
+Kategorien hentes fra produktene du selv har godkjent — ikke fra en liste vi har
+funnet på.
+
+**Det tredje utfallet.** Kjedene bruker ulike kategoritrær, så et hardt
+kategorifilter gir falske negative: Rema forsvant helt fra toalettpapir, enda de
+hadde den billigste varen av alle. Derfor droppes ingen butikk stille. Treff som
+matcher ordet men ikke kategorien går til **«Nytt»-innboksen** som et forslag du
+svarer ja eller nei på én gang. Sier du ja, blir det en godkjent vare for godt.
+
+Erstatning er på som standard. Slå den av per vare, eller trykk **Lås** på et
+godkjent produkt for varer der bare det ene duger — kaffen din, for eksempel.
+
 ### Tilbud-merkene
 
 Kassalapp har ikke noe tilbud-endepunkt, så merkene regnes ut fra varens egen
@@ -206,6 +239,10 @@ ingen egen logikk; det faller ut av at alt er nøklet på strekkode.
 - **Norske kjeder priser nasjonalt.** «Billigst i Kristiansand» betyr i praksis
   «billigst blant kjedene som har butikk nær deg». Lokale Coop-samvirkelag og
   Obs-varehus kan avvike fra kjedeprisen.
+- **Erstatninger er sammenlignbare, ikke identiske.** «Toalettpapir» hos
+  Meny til 14,60 og hos Rema til 20,00 er ikke nødvendigvis samme kvalitet
+  eller antall ark. Appen viser alltid hvilket produkt som ble valgt, og kr/kg
+  der vi har det, så du kan se om byttet er reelt.
 - **Prisene hentes én gang i døgnet og kan være feil.** Dette er
   beslutningsstøtte, ikke en garanti i kassa.
 - **Coop-prisene skiller ikke mellom butikkformatene.** Kassalapp har ett

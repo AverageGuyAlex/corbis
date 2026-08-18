@@ -47,6 +47,55 @@ export function matchesWords(product, { include = [], exclude = [] } = {}) {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Er dette egentlig samme slags vare?
+// ---------------------------------------------------------------------------
+
+/**
+ * Sant hvis soekeordet staar som et EGET ORD i teksten.
+ *
+ * Kassalapp soeker paa delstreng. Det betyr at "cola" treffer "chocolate" og
+ * "ruccola", og at et naivt erstatningssoek foreslaar sjokolade og salat naar
+ * du ba om brus. Maalt mot ekte API: soeket "cola" ga 14 treff der 12 var
+ * sjokolade.
+ */
+export function matchesWholeWord(text, term) {
+  const t = norm(term);
+  const hay = norm(text);
+  if (!t || !hay) return false;
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // \p{L} og \p{N} slik at æ, ø og å teller som bokstaver og ikke som ordgrense.
+  const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}([^\\p{L}\\p{N}]|$)`, "iu");
+  return re.test(hay);
+}
+
+/** Kategoristien som en sammenlignbar streng, f.eks. "ost > guloster > gulost". */
+export function categoryPath(product) {
+  const names = (product?.category ?? []).map((c) => norm(c?.name)).filter(Boolean);
+  return names.join(" > ");
+}
+
+/**
+ * Sant hvis to varer hoerer til samme kategori.
+ *
+ * Vi krever minst to felles nivaaer, slik at "Ost > Guloster" og
+ * "Ost > Hvitoster" ikke regnes som det samme, mens "Ost > Guloster > Gulost"
+ * og "Ost > Guloster" gjoer det. Det er dette som skiller ekte gulost fra
+ * "Lesgards Marmelade til Gulost", som ligger under Paalegg > Syltetoey.
+ */
+export function sameCategory(a, b, minLevels = 2) {
+  const pa = (a ?? "").split(" > ").filter(Boolean);
+  const pb = (b ?? "").split(" > ").filter(Boolean);
+  if (pa.length === 0 || pb.length === 0) return false;
+
+  let felles = 0;
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    if (pa[i] !== pb[i]) break;
+    felles++;
+  }
+  return felles >= Math.min(minLevels, pa.length, pb.length);
+}
+
 function chainOf(row) {
   // I ekte svar er `store` et objekt, ikke et array — skjemaet sier array.
   // Vi takler begge, siden endepunktene ikke er konsekvente.
@@ -113,6 +162,7 @@ export function groupByEan(rows) {
         weight: row.weight ?? null,
         weightUnit: row.weight_unit ?? null,
         category: Array.isArray(row.category) ? row.category.map((c) => c?.name).filter(Boolean) : [],
+        categoryPath: categoryPath(row),
         chains: {},
       });
     }
@@ -120,8 +170,10 @@ export function groupByEan(rows) {
     const cand = byEan.get(ean);
     const existing = cand.chains[chain];
 
-    // Bildet mangler ofte på den første raden vi ser, men finnes på en senere.
+    // Bildet og kategorien mangler ofte på den første raden vi ser, men finnes
+    // på en senere.
     if (!cand.image && row.image) cand.image = row.image;
+    if (!cand.categoryPath) cand.categoryPath = categoryPath(row);
     if (!cand.name && row.name) cand.name = row.name;
     if (cand.weight === null && row.weight != null) {
       cand.weight = row.weight;
@@ -241,6 +293,9 @@ export async function fetchEanPrices(ean) {
     image: null,
     weight: null,
     weightUnit: null,
+    // Kategorien til varene du har godkjent er referansen erstatninger måles
+    // mot. Uten den kan vi ikke skille gulost fra marmelade til gulost.
+    categoryPath: null,
     stores: {},
     history: {},
   };
@@ -255,6 +310,7 @@ export async function fetchEanPrices(ean) {
     // Første brukbare oppføring gir navn, vekt og reservebilde.
     if (!row.name && listing.name) row.name = listing.name;
     if (!row.image && listing.image) row.image = listing.image;
+    if (!row.categoryPath) row.categoryPath = categoryPath(listing) || null;
     if (row.weight === null && listing.weight != null) {
       row.weight = listing.weight;
       row.weightUnit = listing.weight_unit ?? null;
@@ -300,4 +356,173 @@ export async function lookupEan(ean) {
   const candidates = groupByEan(normalised);
 
   return { ean: String(ean), candidates };
+}
+
+// ---------------------------------------------------------------------------
+// Erstatninger
+// ---------------------------------------------------------------------------
+
+/**
+ * Finner billigste relevante vare i hver kjede som mangler et godkjent produkt.
+ *
+ * Bakgrunnen: en handleliste-linje er et *begrep*, ikke en fast liste
+ * strekkoder. «Toalettpapir» finnes i alle butikker, men med hvert sitt
+ * husmerke — Kiwi har First Price, Rema har Prima, Coop har X-tra. Låser vi
+ * varen til noen få strekkoder, blir den «mangler» i halve utvalget, og
+ * rangeringen blir feil av en grunn som ikke har noe med pris å gjøre.
+ *
+ * Strategien er todelt for å spare kall:
+ *   1. Ett generelt søk. Det treffer som regel flere kjeder samtidig.
+ *   2. Målrettet søk med store= for kjedene som fortsatt mangler.
+ *
+ * Returnerer { byChain, calls } der byChain[KJEDE] er billigste treff.
+ */
+export async function findSubstitutes({
+  query,
+  chains,
+  include = [],
+  exclude = [],
+  referenceCategories = [],
+  preferUnitPrice = true,
+  maxCalls = 8,
+}) {
+  const q = String(query ?? "").trim();
+  const byChain = {};
+  const usikre = {};
+  const avvist = { ord: 0, kategori: 0 };
+  let calls = 0;
+
+  if (q.length < 3 || !chains?.length) return { byChain, usikre, calls, avvist };
+
+  /**
+   * To filtre, og begge er nødvendige. Målt mot ekte API:
+   *
+   *   uten ordgrense   → «cola» traff «ruccola» og «chocolate», fordi
+   *                      Kassalapp søker på delstreng
+   *   uten kategori    → «gulost» traff «Lesgards Marmelade til Gulost»,
+   *                      som er syltetøy
+   *
+   * Kategoriene hentes fra produktene du selv har godkjent. Har du ingen
+   * ennå, tør vi ikke erstatte — da vet vi ikke hva varen din betyr.
+   */
+  /**
+   * Tre utfall, ikke to.
+   *
+   * "avvist"  — ikke engang samme ord. Kastes.
+   * "sikker"  — samme ord OG samme kategori som noe du har godkjent.
+   *             Brukes i planen automatisk.
+   * "usikker" — samme ord, men kategorien matcher ikke eller mangler.
+   *             Brukes ALDRI i planen. Går til «Nytt»-innboksen som forslag.
+   *
+   * Grunnen til det tredje utfallet: kjedene bruker ulike kategoritrær. Med
+   * kategori som hardt filter forsvant Rema helt fra toalettpapir — enda de
+   * hadde den billigste varen av alle. Et filter som stilltiende dropper den
+   * billigste butikken er verre enn ingen erstatning. Så vi dropper den ikke;
+   * vi spør deg.
+   */
+  const vurder = (cand) => {
+    if (!matchesWholeWord(cand.name, q)) {
+      avvist.ord += 1;
+      return "avvist";
+    }
+    if (!referenceCategories.length) return "usikker";
+    const treff = referenceCategories.some((ref) => sameCategory(ref, cand.categoryPath));
+    if (!treff) {
+      avvist.kategori += 1;
+      return "usikker";
+    }
+    return "sikker";
+  };
+
+  /** Billigst vinner. Med kr/kg der vi har det, ellers pakkepris. */
+  const bedre = (a, b) => {
+    if (!a) return true;
+    if (preferUnitPrice && a.unitPrice !== null && b.unitPrice !== null) {
+      return b.unitPrice < a.unitPrice;
+    }
+    // Sammenlign aldri kilopris mot pakkepris — da vinner en 30 g porsjonsbit
+    // over en kilo ost, slik den faktisk gjorde før dette.
+    if (a.unitPrice !== null && b.unitPrice === null) return false;
+    if (a.unitPrice === null && b.unitPrice !== null) return true;
+    return b.price < a.price;
+  };
+
+  const taImot = (kandidater, kunKjede = null) => {
+    for (const cand of kandidater) {
+      const dom = vurder(cand);
+      if (dom === "avvist") continue;
+
+      for (const [chain, row] of Object.entries(cand.chains ?? {})) {
+        if (kunKjede && chain !== kunKjede) continue;
+        if (!chains.includes(chain)) continue;
+
+        const forslag = {
+          ean: cand.ean,
+          name: cand.name,
+          image: row.image ?? cand.image ?? null,
+          price: row.price,
+          unitPrice: row.unitPrice,
+          unitPriceUnit: row.unitPriceUnit,
+          weight: cand.weight,
+          weightUnit: cand.weightUnit,
+          categoryPath: cand.categoryPath ?? null,
+          url: row.url ?? null,
+        };
+
+        const mål = dom === "sikker" ? byChain : usikre;
+        if (bedre(mål[chain], forslag)) mål[chain] = forslag;
+      }
+    }
+  };
+
+  // 1. Ett generelt søk dekker som regel flere kjeder på én gang.
+  try {
+    const bredt = await searchCandidates({ q, include, exclude, pages: 1, limit: 100 });
+    calls += 1;
+    taImot(bredt.candidates);
+  } catch (err) {
+    console.error(`[substitutes] bredt søk for "${q}" feilet:`, err?.message);
+  }
+
+  // 2. Målrettet per kjede for dem som fortsatt står tomme — også de som bare
+  //    har et usikkert forslag, for kanskje finnes et sikkert lenger inne.
+  for (const chain of chains) {
+    if (byChain[chain]) continue;
+    if (calls >= maxCalls) break;
+
+    try {
+      const rows = await kassalGetAll(
+        "/products",
+        { search: q, store: chain, size: 100, exclude_without_ean: 1 },
+        1,
+      );
+      calls += 1;
+      const kept = rows.filter((r) => matchesWords(r, { include, exclude }));
+      taImot(groupByEan(kept), chain);
+    } catch (err) {
+      console.error(`[substitutes] "${q}" i ${chain} feilet:`, err?.message);
+    }
+  }
+
+  // Usikre forslag for kjeder som fikk et sikkert treff er uinteressante.
+  for (const chain of Object.keys(usikre)) {
+    if (byChain[chain]) delete usikre[chain];
+  }
+
+  return { byChain, usikre, calls, avvist };
+}
+
+/**
+ * Kategoriene varens godkjente produkter hører til.
+ * Det er disse en erstatning må dele, og de kommer fra dine egne valg —
+ * ikke fra en liste vi har funnet på.
+ */
+export function referenceCategoriesFor(item, byEan) {
+  const eans = item?.lockedEan ? [item.lockedEan] : (item?.approvedEans ?? []);
+  const set = new Set();
+  for (const ean of eans) {
+    const path = byEan?.[ean]?.categoryPath;
+    if (path) set.add(path);
+  }
+  return [...set];
 }

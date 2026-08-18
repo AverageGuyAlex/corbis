@@ -273,6 +273,13 @@ label.field > span { display: block; font-size: 0.78rem; color: var(--muted); ma
 .badge--laveste { background: var(--good); color: var(--primary-ink); }
 .badge--dyrt { background: var(--warn-soft); color: var(--warn); }
 .badge--mangler { background: var(--bad-soft); color: var(--bad); }
+/* Erstatning skal være synlig, ikke skjult i tallet. Nøytral farge — det er
+   ikke en advarsel, men du skal vite at det ikke er varen du krysset av. */
+.badge--erstatning {
+  background: transparent;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
 
 .chip {
   display: inline-flex;

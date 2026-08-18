@@ -40,6 +40,7 @@ function normalise() {
     approvedEans: [],
     rejectedEans: [],
     lockedEan: null,
+    allowSubstitute: true,
     qty: 1,
     qtyUnit: "kg",
     compareBy: "unit",
@@ -326,7 +327,16 @@ function renderPlan() {
           el("div", { class: "pline__body" },
             el("div", { class: "pline__name", text: `${item.label} · ${qtyLabel(item)}` }),
             el("div", { class: "pline__product", text: cell?.name ?? "" }),
-            el("div", { class: "pline__tags" }, badgeNode(cell)),
+            el("div", { class: "pline__tags" },
+              cell?.substitute
+                ? el("span", {
+                    class: "badge badge--erstatning",
+                    text: "Erstatning",
+                    title: "Denne kjeden har ingen av produktene du har godkjent. Dette er billigste tilsvarende vare i samme kategori.",
+                  })
+                : null,
+              badgeNode(cell),
+            ),
           ),
           el("div", { class: "pline__right" },
             el("div", { class: "pline__price", text: formatKr(plan.perItem[item.id].cost) }),
@@ -371,12 +381,20 @@ function renderPlan() {
   // Kjeder der ett prissett dekker flere butikkformater med reelt ulike priser.
   const omtrentlige = plan.chains.filter((c) => state.stores.chains?.[c]?.approximate);
 
+  const antallErstatninger = items.filter((i) => {
+    const c = plan.perItem[i.id];
+    return c && state.result.matrix?.[i.id]?.[c.chain]?.substitute;
+  }).length;
+
   nodes.push(
     el("section", { class: "card card--flat small muted" },
       el("p", { text: `Priser hentet ${dateLabel(state.prices.builtAt)}. Kassalapp oppdaterer én gang i døgnet, og feil kan forekomme.` }),
       el("p", { text: "Norske kjeder priser nasjonalt, så dette er billigst blant kjedene nær deg — ikke en garanti i kassa." }),
       omtrentlige.length
         ? el("p", { text: `${omtrentlige.map(chainLabel).join(", ")}: Kassalapp har ett felles prissett for alle butikkformatene. Extra, Prix og Mega har i virkeligheten ulike priser, så disse tallene er mer veiledende enn de andre.` })
+        : null,
+      antallErstatninger
+        ? el("p", { text: `${antallErstatninger} av varene er erstatninger — billigste tilsvarende i samme kategori, ikke produktet du krysset av. De er merket i lista. Sammenlignbart er ikke det samme som identisk: sjekk gjerne pakningsstørrelsen på de dyreste postene.` })
         : null,
       result.excludedByDistance?.length
         ? el("p", { text: `Utelatt fordi de er lenger unna enn ${state.list.settings.maxKm} km: ${result.excludedByDistance.map(chainLabel).join(", ")}.` })
@@ -566,6 +584,20 @@ function renderItem(item) {
     el("label", { class: "field mt-s" },
       el("span", { text: "Utelukk ord (komma mellom)" }), excludeInput,
     ),
+    el("label", { class: "row mt-m" },
+      el("input", {
+        type: "checkbox",
+        checked: item.allowSubstitute !== false,
+        onChange: (e) => {
+          item.allowSubstitute = e.currentTarget.checked;
+          persist();
+        },
+      }),
+      el("span", { class: "small grow" },
+        "Godta erstatning",
+        el("span", { class: "tiny muted", text: " — billigste tilsvarende i samme kategori der butikken ikke har produktene dine" }),
+      ),
+    ),
     renderApprovedList(item),
     el("div", { class: "row mt-m" },
       el("button", { class: "btn btn--sm", text: "Finn flere produkter", onClick: () => openSearch({ item }) }),
@@ -607,6 +639,17 @@ function renderApprovedList(item) {
           el("div", { class: "small", text: entry?.name ?? `Strekkode ${ean}` }),
           el("div", { class: "line__meta", text: cheapest ? `Billigst: ${chainLabel(cheapest[0])} ${formatKr(cheapest[1].price)}` : "Ingen prisdata ennå" }),
         ),
+        el("button", {
+          class: item.lockedEan === ean ? "btn btn--sm btn--good" : "btn btn--sm",
+          text: item.lockedEan === ean ? "Låst" : "Lås",
+          title: item.lockedEan === ean
+            ? "Låst til denne varen. Trykk for å tillate de andre igjen."
+            : "Bruk bare denne varen — ingen erstatning, ingen av de andre godkjente.",
+          onClick: () => {
+            item.lockedEan = item.lockedEan === ean ? null : ean;
+            persist();
+          },
+        }),
         el("button", {
           class: "btn btn--sm btn--ghost", text: "Fjern", title: "Fjern og aldri foreslå igjen",
           onClick: () => {
@@ -656,15 +699,73 @@ function renderSettings() {
 // ---------------------------------------------------------------------------
 
 function pendingCount() {
-  return Object.values(state.candidates.byItem ?? {}).reduce(
+  const fraSok = Object.values(state.candidates.byItem ?? {}).reduce(
     (sum, e) => sum + (e.candidates?.length ?? 0),
     0,
   );
+  const fraErstatning = Object.values(state.candidates.substituteSuggestions ?? {}).reduce(
+    (sum, e) => sum + Object.keys(e.byChain ?? {}).length,
+    0,
+  );
+  return fraSok + fraErstatning;
+}
+
+/**
+ * Erstatninger vi ikke tør bruke automatisk.
+ *
+ * Kjedene bruker ulike kategoritrær, så kategorifilteret gir falske negative:
+ * Rema forsvant helt fra toalettpapir enda de hadde den billigste varen. I
+ * stedet for å droppe butikken stille, spør vi deg én gang.
+ */
+function renderSubstituteSuggestions() {
+  const entries = Object.entries(state.candidates.substituteSuggestions ?? {});
+  if (entries.length === 0) return null;
+
+  const nodes = [
+    el("div", { class: "note note--info", text: "Disse butikkene mangler et godkjent produkt for varen din. Sier du ja, blir forslaget en godkjent vare og brukes i planen fra neste prisoppdatering." }),
+  ];
+
+  for (const [itemId, entry] of entries) {
+    const card = el("section", { class: "card" },
+      el("div", { class: "card__head" },
+        el("h3", { text: entry.label ?? itemId }),
+        el("span", { class: "tiny muted", text: "mangler i disse butikkene" }),
+      ),
+    );
+
+    for (const [chain, sub] of Object.entries(entry.byChain ?? {})) {
+      card.append(
+        el("div", { class: "cand" },
+          thumb(sub.image, sub.name ?? chain, "md"),
+          el("div", { class: "cand__body" },
+            el("div", { class: "cand__name", text: sub.name ?? `Strekkode ${sub.ean}` }),
+            el("div", { class: "line__meta", text: `${chainLabel(chain)} · ${formatKr(sub.price)}` }),
+            el("div", { class: "tiny muted", text: sub.categoryPath || "uten kategori hos Kassalapp" }),
+          ),
+          el("div", { class: "row nowrap" },
+            el("button", {
+              class: "btn btn--sm btn--good", text: "Ja",
+              onClick: (e) => decide(itemId, sub.ean, "approve", e.currentTarget),
+            }),
+            el("button", {
+              class: "btn btn--sm", text: "Nei",
+              onClick: (e) => decide(itemId, sub.ean, "reject", e.currentTarget),
+            }),
+          ),
+        ),
+      );
+    }
+    nodes.push(card);
+  }
+
+  return nodes;
 }
 
 function renderInbox() {
   const entries = Object.entries(state.candidates.byItem ?? {});
-  if (entries.length === 0) {
+  const erstatninger = renderSubstituteSuggestions();
+
+  if (entries.length === 0 && !erstatninger) {
     return replace(ui.nytt,
       el("div", { class: "empty" },
         el("strong", { text: "Ingenting nytt" }),
@@ -673,9 +774,16 @@ function renderInbox() {
     );
   }
 
-  const nodes = [
-    el("div", { class: "note note--info", text: "Si ja eller nei én gang — appen husker svaret og spør ikke igjen." }),
-  ];
+  const nodes = [];
+
+  // Manglende butikker først — de påvirker planen din akkurat nå.
+  if (erstatninger) nodes.push(erstatninger);
+
+  if (entries.length) {
+    nodes.push(
+      el("div", { class: "note note--info", text: "Si ja eller nei én gang — appen husker svaret og spør ikke igjen." }),
+    );
+  }
 
   for (const [itemId, entry] of entries) {
     const card = el("section", { class: "card" },
@@ -720,10 +828,21 @@ async function decide(itemId, ean, verdict, button) {
       item.approvedEans = res.item.approvedEans;
       item.rejectedEans = res.item.rejectedEans;
     }
-    const entry = state.candidates.byItem[itemId];
+    const entry = state.candidates.byItem?.[itemId];
     if (entry) {
       entry.candidates = entry.candidates.filter((c) => c.ean !== ean);
       if (entry.candidates.length === 0) delete state.candidates.byItem[itemId];
+    }
+
+    // Samme svar gjelder erstatningsforslaget, om det var derfra du svarte.
+    const forslag = state.candidates.substituteSuggestions?.[itemId];
+    if (forslag) {
+      for (const [chain, sub] of Object.entries(forslag.byChain ?? {})) {
+        if (sub.ean === ean) delete forslag.byChain[chain];
+      }
+      if (Object.keys(forslag.byChain ?? {}).length === 0) {
+        delete state.candidates.substituteSuggestions[itemId];
+      }
     }
     if (res.pricesStale) state.pricesStale = true;
     compute();

@@ -438,6 +438,88 @@ describe("buildMatrix", () => {
   });
 });
 
+describe("erstatninger", () => {
+  // Poenget: alle butikker selger dopapir, bare ikke akkurat det merket du
+  // krysset av. Uten erstatning ble varen «mangler», og butikken rangerte ned
+  // av en grunn som ikke har med pris å gjøre.
+  const PRICES_MED_ERSTATNING = {
+    builtAt: NOW.toISOString(),
+    byEan: {
+      "700": {
+        name: "Toalettpapir Økonomi 8rl First Price",
+        weight: 8,
+        weightUnit: "stk",
+        stores: { KIWI: { price: 18.9, unitPrice: null, unitPriceUnit: null } },
+        history: {},
+      },
+    },
+    substitutes: {
+      dopapir: {
+        REMA_1000: {
+          ean: "701",
+          name: "TOALETTPAPIR 8PK PRIMA",
+          price: 20,
+          unitPrice: null,
+          unitPriceUnit: null,
+          weight: 8,
+          weightUnit: "stk",
+          image: "https://example.test/prima.webp",
+          categoryPath: null,
+        },
+      },
+    },
+  };
+
+  const item = {
+    id: "dopapir", label: "Toalettpapir", qty: 1, qtyUnit: "stk",
+    compareBy: "pack", approvedEans: ["700"],
+  };
+  const chains = ["KIWI", "REMA_1000", "MENY_NO"];
+  const matrix = buildMatrix({ items: [item], prices: PRICES_MED_ERSTATNING, chains, now: NOW });
+
+  test("godkjent strekkode brukes der den finnes", () => {
+    assert.equal(matrix.dopapir.KIWI.status, "ok");
+    assert.equal(matrix.dopapir.KIWI.ean, "700");
+    assert.ok(!matrix.dopapir.KIWI.substitute);
+  });
+
+  test("erstatning brukes der kjeden mangler godkjent produkt", () => {
+    assert.equal(matrix.dopapir.REMA_1000.status, "ok");
+    assert.equal(matrix.dopapir.REMA_1000.substitute, true);
+    assert.equal(matrix.dopapir.REMA_1000.cost, 20);
+    assert.equal(matrix.dopapir.REMA_1000.name, "TOALETTPAPIR 8PK PRIMA");
+  });
+
+  test("erstatningen har med bildet sitt", () => {
+    assert.equal(matrix.dopapir.REMA_1000.image, "https://example.test/prima.webp");
+  });
+
+  test("erstatninger får ikke tilbud-merke de ikke har dekning for", () => {
+    assert.equal(matrix.dopapir.REMA_1000.badge, "UKJENT");
+  });
+
+  test("kjede uten både godkjent og erstatning er fortsatt missing", () => {
+    assert.equal(matrix.dopapir.MENY_NO.status, "missing");
+  });
+
+  test("en låst vare erstattes aldri", () => {
+    const laast = buildMatrix({
+      items: [{ ...item, lockedEan: "700" }],
+      prices: PRICES_MED_ERSTATNING,
+      chains,
+      now: NOW,
+    });
+    assert.equal(laast.dopapir.REMA_1000.status, "missing");
+  });
+
+  test("erstatning teller som dekning i rangeringen", () => {
+    const r = rankSingle({ matrix, items: [item], chains });
+    const rema = r.find((x) => x.chain === "REMA_1000");
+    assert.equal(rema.covered, 1);
+    assert.deepEqual(rema.missing, []);
+  });
+});
+
 describe("rankSingle", () => {
   const matrix = buildMatrix({ items: ITEMS, prices: PRICES, chains: CHAINS, now: NOW });
   const ranked = rankSingle({ matrix, items: ITEMS, chains: CHAINS });

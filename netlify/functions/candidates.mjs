@@ -83,6 +83,17 @@ export default async (req) => {
       entry.candidates = (entry.candidates ?? []).filter((c) => !handled.has(String(c.ean)));
       if (entry.candidates.length === 0) delete state.byItem[itemId];
     }
+
+    // Erstatningsforslag for samme vare regnes som besvart av samme svar.
+    const forslag = state?.substituteSuggestions?.[itemId];
+    if (forslag) {
+      for (const [chain, sub] of Object.entries(forslag.byChain ?? {})) {
+        if (handled.has(String(sub?.ean))) delete forslag.byChain[chain];
+      }
+      if (Object.keys(forslag.byChain ?? {}).length === 0) {
+        delete state.substituteSuggestions[itemId];
+      }
+    }
     state.updatedAt = new Date().toISOString();
 
     await Promise.all([writeJSON(KEYS.list, list), writeJSON(KEYS.candidates, state)]);

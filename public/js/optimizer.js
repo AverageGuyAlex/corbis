@@ -310,6 +310,52 @@ export function buildMatrix({ items, prices, chains, now = new Date() }) {
         }
       }
 
+      // Ingen godkjent strekkode i denne kjeden? Bruk en erstatning fra samme
+      // kategori. «Toalettpapir» finnes i alle butikker — bare ikke akkurat
+      // det merket du krysset av. Å kalle det «mangler» ville rangert butikken
+      // ned av en grunn som ikke har med pris å gjøre.
+      if (!best && !item.lockedEan) {
+        const sub = prices?.substitutes?.[item.id]?.[chain];
+        if (sub) {
+          const entry = {
+            name: sub.name,
+            weight: sub.weight,
+            weightUnit: sub.weightUnit,
+            image: sub.image,
+          };
+          const storeRow = {
+            price: sub.price,
+            unitPrice: sub.unitPrice,
+            unitPriceUnit: sub.unitPriceUnit,
+            image: sub.image,
+            url: sub.url,
+          };
+          const priced = costFor(item, entry, storeRow);
+          if (priced) {
+            best = {
+              status: "ok",
+              substitute: true,
+              ean: sub.ean,
+              name: sub.name ?? null,
+              categoryPath: sub.categoryPath ?? null,
+              packPrice: round2(sub.price),
+              unitPrice: priced.perBase,
+              weight: sub.weight ?? null,
+              weightUnit: sub.weightUnit ?? null,
+              image: sub.image ?? null,
+              url: sub.url ?? null,
+              cost: priced.cost,
+              basis: priced.basis,
+              // Erstatninger har ingen prishistorikk hos oss, så vi gir dem
+              // heller ikke et tilbud-merke vi ikke kan stå for.
+              ...badgeFor(null, sub.price, { now }),
+            };
+          } else {
+            sawChainButCannotCompare = true;
+          }
+        }
+      }
+
       if (best) row[chain] = best;
       else if (sawChainButCannotCompare) {
         row[chain] = {

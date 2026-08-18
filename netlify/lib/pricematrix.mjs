@@ -20,7 +20,7 @@
  */
 
 import { kassalPost, unwrap, chunk, MIN_INTERVAL_MS } from "./kassal.mjs";
-import { fetchEanPrices } from "./products.mjs";
+import { fetchEanPrices, findSubstitutes, referenceCategoriesFor } from "./products.mjs";
 import { readJSON, writeJSON, KEYS } from "./blobs.mjs";
 import { isGroceryChain } from "./chains.mjs";
 import { positiveNumber, pickBetterHistory, recentPointCount } from "../../public/js/optimizer.js";
@@ -30,6 +30,13 @@ export const HISTORY_DAYS = 90;
 
 /** Kassalapp tar maks 100 strekkoder per bulk-kall. */
 const EANS_PER_BULK_CALL = 100;
+
+/**
+ * Etter dette slutter vi å lete etter erstatninger.
+ * Bakgrunnsfunksjonen har 15 minutter; vi holder oss godt innenfor og lar
+ * heller noen varer vente til neste kjøring enn å bli avbrutt midtveis.
+ */
+const SUBSTITUTE_DEADLINE_MS = 10 * 60_000;
 
 /** Alle strekkoder handlelista faktisk trenger priser på. */
 export function collectEans(list) {
@@ -171,6 +178,53 @@ export async function buildPriceMatrix({ days = HISTORY_DAYS, onProgress } = {})
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Erstatninger
+  //
+  // En handleliste-linje er et begrep, ikke en fast liste strekkoder.
+  // «Toalettpapir» finnes i alle butikker, men med hvert sitt husmerke. Uten
+  // dette steget blir varen «mangler» i halve utvalget, og rangeringen blir
+  // feil av en grunn som ikke har med pris å gjøre.
+  // -------------------------------------------------------------------------
+
+  const stores = await readJSON(KEYS.stores);
+  const chains = [...new Set((stores?.selected ?? []).map((s) => s.chain).filter(Boolean))];
+
+  const substitutes = {};
+  const suggestions = {};
+
+  if (chains.length) {
+    for (const item of list?.items ?? []) {
+      if (item?.allowSubstitute === false || item?.lockedEan) continue;
+      if (Date.now() - startedAt > SUBSTITUTE_DEADLINE_MS) {
+        notes.push("Rakk ikke å lete etter erstatninger for alle varer denne gangen.");
+        break;
+      }
+
+      // Hvilke kjeder har allerede et godkjent produkt?
+      const dekket = new Set();
+      for (const ean of item.approvedEans ?? []) {
+        for (const chain of Object.keys(byEan[ean]?.stores ?? {})) dekket.add(chain);
+      }
+      const mangler = chains.filter((c) => !dekket.has(c));
+      if (mangler.length === 0) continue;
+
+      const { byChain, usikre, calls: n } = await findSubstitutes({
+        query: item.search || item.label,
+        chains: mangler,
+        include: item.include,
+        exclude: item.exclude,
+        referenceCategories: referenceCategoriesFor(item, byEan),
+      });
+      calls += n;
+
+      if (Object.keys(byChain).length) substitutes[item.id] = byChain;
+      if (Object.keys(usikre).length) {
+        suggestions[item.id] = { label: item.label ?? item.id, byChain: usikre };
+      }
+    }
+  }
+
   const matrix = {
     builtAt: new Date().toISOString(),
     days,
@@ -179,9 +233,23 @@ export async function buildPriceMatrix({ days = HISTORY_DAYS, onProgress } = {})
     calls,
     seconds: Math.round((Date.now() - startedAt) / 1000),
     byEan,
+    // substitutes[varens id][KJEDE] = billigste vare i samme kategori.
+    // Brukes bare der kjeden mangler et godkjent produkt.
+    substitutes,
     notes,
   };
 
   await writeJSON(KEYS.prices, matrix);
+
+  // Usikre forslag går til «Nytt»-innboksen, aldri rett inn i planen.
+  // Kjedene bruker ulike kategoritrær, så et hardt filter ville droppet
+  // butikker stille — blant annet Rema, som hadde billigste dopapir.
+  if (Object.keys(suggestions).length) {
+    const state = await readJSON(KEYS.candidates);
+    state.substituteSuggestions = suggestions;
+    state.updatedAt = new Date().toISOString();
+    await writeJSON(KEYS.candidates, state);
+  }
+
   return matrix;
 }
