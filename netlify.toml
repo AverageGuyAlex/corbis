@@ -38,12 +38,18 @@
 
 # Produktbilder kommer fra kjedenes egne domener, derfor img-src https: over.
 
+# JS og CSS ligger på faste adresser og endres sammen med HTML-sidene. Med
+# max-age beholder nettleseren gamle filer uten å spørre, og kjører gammel JS
+# mot en ny side: en tom side, eller en knapp som ikke gjør noe. no-cache betyr
+# at den spør Netlify hver gang, og får 304 uten nedlasting når ingenting er
+# endret.
+
 [[headers]]
   for = "/css/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600"
+    Cache-Control = "no-cache"
 
 [[headers]]
   for = "/js/*"
   [headers.values]
-    Cache-Control = "public, max-age=3600"
+    Cache-Control = "no-cache"
