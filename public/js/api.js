@@ -6,8 +6,6 @@
  * både av sikkerhetsgrunner og fordi API-vilkårene krever det.
  */
 
-const KEY_STORAGE = "corbis.key";
-
 export class ApiError extends Error {
   constructor(status, message, detail) {
     super(message);
@@ -15,31 +13,6 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
-  get isAuth() {
-    return this.status === 401;
-  }
-}
-
-export function getKey() {
-  try {
-    return localStorage.getItem(KEY_STORAGE) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-export function setKey(value) {
-  try {
-    localStorage.setItem(KEY_STORAGE, value);
-  } catch {
-    /* privat modus — appen virker, men passordet må skrives inn på nytt */
-  }
-}
-
-export function clearKey() {
-  try {
-    localStorage.removeItem(KEY_STORAGE);
-  } catch {}
 }
 
 async function call(path, { method = "GET", body, params } = {}) {
@@ -49,7 +22,7 @@ async function call(path, { method = "GET", body, params } = {}) {
     url.searchParams.set(key, String(value));
   }
 
-  const headers = { "x-corbis-key": getKey() };
+  const headers = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
   let res;

@@ -10,7 +10,7 @@
  * Lista over avviste kan bli lang, og den har ingenting å gjøre i en URL.
  */
 
-import { requireKey, json, errorResponse } from "../lib/auth.mjs";
+import { json, errorResponse } from "../lib/auth.mjs";
 import { searchCandidates, lookupEan } from "../lib/products.mjs";
 import { positiveNumber } from "../../public/js/optimizer.js";
 
@@ -25,9 +25,6 @@ function splitWords(value) {
 }
 
 export default async (req) => {
-  const denied = requireKey(req);
-  if (denied) return denied;
-
   try {
     const url = new URL(req.url);
 

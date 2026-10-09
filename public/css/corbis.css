@@ -525,13 +525,6 @@ label.field > span { display: block; font-size: 0.78rem; color: var(--muted); ma
 
 /* --- Passportvakt -------------------------------------------------------- */
 
-.gate {
-  max-width: 22rem;
-  margin: 15vh auto 0;
-  text-align: center;
-}
-.gate .card { text-align: left; }
-
 /* --- Skanner ------------------------------------------------------------- */
 
 .scanbox { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; }

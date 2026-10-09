@@ -1,26 +1,9 @@
 /**
- * Passordsjekk for funksjonene som leser eller skriver dine data.
+ * Felles hjelpere for funksjonene: JSON-svar, feilsvar og lesing av body.
  *
- * Dette er ikke ekte innlogging. Nettleseren sender passordet i en header
- * over HTTPS, og vi sammenligner det med miljøvariabelen APP_PASSWORD.
- * Det stopper tilfeldig snoking i en handleliste — det er alt det skal gjøre,
- * og det er nok her.
+ * Appen har ingen innlogging. Den som kjenner adressen kan lese og endre
+ * handlelista, så hold adressen for deg selv.
  */
-
-import { createHash, timingSafeEqual } from "node:crypto";
-
-export const KEY_HEADER = "x-corbis-key";
-
-/**
- * Sammenligner to hemmeligheter uten å lekke informasjon gjennom hvor lang
- * tid sammenligningen tar. Vi hasher først, slik at bufferne alltid er like
- * lange — timingSafeEqual krever det.
- */
-function sameSecret(a, b) {
-  const ha = createHash("sha256").update(String(a)).digest();
-  const hb = createHash("sha256").update(String(b)).digest();
-  return timingSafeEqual(ha, hb);
-}
 
 export function json(status, payload) {
   return new Response(JSON.stringify(payload), {
@@ -30,28 +13,6 @@ export function json(status, payload) {
       "Cache-Control": "no-store",
     },
   });
-}
-
-/**
- * Returnerer null hvis forespørselen er godkjent, ellers et ferdig
- * feilsvar som kalleren skal returnere direkte.
- */
-export function requireKey(req) {
-  const expected = process.env.APP_PASSWORD;
-
-  if (!expected) {
-    return json(500, {
-      error:
-        "APP_PASSWORD mangler. Legg den inn under Project configuration → Environment variables i Netlify, og kjør en ny deploy (eller sett den i .env lokalt).",
-    });
-  }
-
-  const given = req.headers.get(KEY_HEADER) ?? "";
-  if (!given || !sameSecret(given, expected)) {
-    return json(401, { error: "Feil passord." });
-  }
-
-  return null;
 }
 
 /**

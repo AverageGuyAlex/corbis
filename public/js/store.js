@@ -41,9 +41,8 @@ export function cachedState() {
 }
 
 /**
- * Henter alt fra serveren. Kaster videre ved feil passord, slik at appen kan
- * vise passordvakta — men lar de andre feilene gå gjennom som delvis data,
- * siden en tom prismatrise er noe helt annet enn en tom handleliste.
+ * Henter alt fra serveren. Feil på ett endepunkt lar de andre gå gjennom som
+ * delvis data, siden en tom prismatrise er noe helt annet enn en tom handleliste.
  */
 export async function loadAll() {
   const results = await Promise.allSettled([
@@ -52,9 +51,6 @@ export async function loadAll() {
     api.getPrices(),
     api.getCandidates(),
   ]);
-
-  const authFailure = results.find((r) => r.status === "rejected" && r.reason?.isAuth);
-  if (authFailure) throw authFailure.reason;
 
   const [list, stores, prices, candidates] = results;
   // Fire like feilmeldinger er ikke fire opplysninger. Vis hver bare én gang.

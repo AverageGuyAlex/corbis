@@ -30,16 +30,8 @@ export async function triggerRefresh() {
     return { started: false, reason: "Fant ingen side-URL å kalle bakgrunnsfunksjonen på." };
   }
 
-  const key = process.env.APP_PASSWORD;
-  if (!key) {
-    return { started: false, reason: "APP_PASSWORD mangler, så bakgrunnsjobben kan ikke autentisere." };
-  }
-
   try {
-    const res = await fetch(`${base}/api/refresh-run`, {
-      method: "POST",
-      headers: { "x-corbis-key": key },
-    });
+    const res = await fetch(`${base}/api/refresh-run`, { method: "POST" });
 
     // Bakgrunnsfunksjoner svarer 202 med en gang. Alt annet er uventet.
     if (res.status === 202 || res.ok) return { started: true };

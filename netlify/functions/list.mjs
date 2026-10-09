@@ -8,7 +8,7 @@
  * kylling aldri dukker opp igjen.
  */
 
-import { requireKey, json, errorResponse, readBody } from "../lib/auth.mjs";
+import { json, errorResponse, readBody } from "../lib/auth.mjs";
 import { readJSON, writeJSON, KEYS, DEFAULTS } from "../lib/blobs.mjs";
 
 // Gjenbruker enhetstabellen fra optimalisereren, slik at serveren og
@@ -107,9 +107,6 @@ function sanitiseSettings(raw) {
 }
 
 export default async (req) => {
-  const denied = requireKey(req);
-  if (denied) return denied;
-
   try {
     if (req.method === "GET") {
       return json(200, await readJSON(KEYS.list));

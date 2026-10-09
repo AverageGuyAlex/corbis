@@ -113,29 +113,23 @@ console.log("\n=== Strekkodeoppslag ===");
 
 console.log("\n=== Endepunktene (slik nettleseren kaller dem) ===");
 {
-  process.env.APP_PASSWORD = "smoketest";
-  const KEY = { "x-corbis-key": "smoketest" };
-
   const search = (await import("../netlify/functions/search.mjs")).default;
 
   // Nøyaktig den URL-en frontenden lager når du legger til en vare: ingen
   // categoryId, ingen pages.
-  const res = await search(new Request("http://x/api/search?q=melk", { headers: KEY }));
+  const res = await search(new Request("http://x/api/search?q=melk"));
   const body = await res.json();
 
   check("GET /api/search uten valgfrie parametre", res.status === 200, `HTTP ${res.status} ${body.error ?? ""}`);
   check("gir faktiske kandidater", (body.candidates?.length ?? 0) > 0, `${body.candidates?.length ?? 0} treff`);
 
   const medEkskludering = await search(
-    new Request("http://x/api/search?q=melk&exclude=sjokolade", { headers: KEY }),
+    new Request("http://x/api/search?q=melk&exclude=sjokolade"),
   );
   check("GET /api/search med utelukk-ord", medEkskludering.status === 200, `HTTP ${medEkskludering.status}`);
 
-  const kort = await search(new Request("http://x/api/search?q=ka", { headers: KEY }));
+  const kort = await search(new Request("http://x/api/search?q=ka"));
   check("for kort søk avvises pent med 400", kort.status === 400);
-
-  const utenNokkel = await search(new Request("http://x/api/search?q=melk"));
-  check("uten passord gir 401", utenNokkel.status === 401);
 }
 
 console.log("\n=== Coop-kodeoversettelsen ===");

@@ -8,11 +8,12 @@
  * Full kjøring er ett API-kall per godkjent strekkode med 1,1 sekunds
  * mellomrom, pluss noen få bulk-kall til historikk. 150 strekkoder ≈ 3 minutter.
  *
- * Endepunktet er offentlig, så det er passordbeskyttet — ellers kunne hvem som
- * helst brenne opp rate-limiten din ved å spamme det.
+ * Endepunktet er åpent, uten passordsjekk. Hvem som helst som finner adressen
+ * kan starte en kjøring og bruke Kassalapp-kvoten din. Låsen under hindrer
+ * bare to kjøringer samtidig.
  */
 
-import { requireKey, errorResponse } from "../lib/auth.mjs";
+import { errorResponse } from "../lib/auth.mjs";
 import { buildPriceMatrix } from "../lib/pricematrix.mjs";
 import { readJSON, writeJSON, KEYS } from "../lib/blobs.mjs";
 
@@ -22,9 +23,6 @@ export const config = { background: true, path: "/api/refresh-run" };
 const PROGRESS_INTERVAL_MS = 4000;
 
 export default async (req) => {
-  const denied = requireKey(req);
-  if (denied) return denied;
-
   const startedAt = new Date().toISOString();
 
   // Ikke start en ny kjøring hvis en allerede er i gang og fortsatt lever.

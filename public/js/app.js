@@ -7,7 +7,7 @@
  */
 
 import { recommend, formatKr, formatUnitPrice } from "./optimizer.js";
-import { api, getKey, setKey, clearKey } from "./api.js";
+import { api } from "./api.js";
 import { cachedState, loadAll, saveList, startRefresh, fetchPrices } from "./store.js";
 import { el, replace, $ } from "./dom.js";
 import { scannerSupported, startScan } from "./scanner.js";
@@ -1172,33 +1172,6 @@ function render() {
   }
 }
 
-function showGate(message) {
-  const input = el("input", { type: "password", placeholder: "Passord", autocomplete: "current-password" });
-  const submit = () => {
-    const value = input.value.trim();
-    if (!value) return;
-    setKey(value);
-    ui.gate.hidden = true;
-    boot();
-  };
-
-  replace(ui.gate,
-    el("div", { class: "gate" },
-      el("h1", { text: "Corbis" }),
-      el("p", { class: "small muted", text: "Handlekurv-optimaliserer for Kristiansand" }),
-      el("div", { class: "card" },
-        message ? el("div", { class: "note note--bad", text: message }) : null,
-        el("label", { class: "field" }, el("span", { text: "Passord" }), input),
-        el("button", { class: "btn btn--primary btn--block mt-m", text: "Åpne", onClick: submit }),
-      ),
-    ),
-  );
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") submit(); });
-  ui.gate.hidden = false;
-  ui.app.hidden = true;
-  input.focus();
-}
-
 async function boot() {
   ui.app.hidden = false;
 
@@ -1215,17 +1188,12 @@ async function boot() {
     compute();
     render();
   } catch (err) {
-    if (err.isAuth) {
-      clearKey();
-      return showGate("Feil passord. Prøv igjen.");
-    }
     toast(err.message, "bad");
   }
 }
 
 function init() {
   ui.app = $("#app");
-  ui.gate = $("#gate");
   ui.toast = $("#toast");
   ui.plan = $("#panel-plan");
   ui.liste = $("#panel-liste");
@@ -1240,12 +1208,10 @@ function init() {
   ui.tab_liste.addEventListener("click", () => switchTab("liste"));
   ui.tab_nytt.addEventListener("click", () => switchTab("nytt"));
   $("#refresh").addEventListener("click", (e) => doRefreshPrices(e.currentTarget, true));
-  $("#logout").addEventListener("click", () => { clearKey(); location.reload(); });
 
   switchTab("plan");
 
-  if (getKey()) boot();
-  else showGate();
+  boot();
 }
 
 document.addEventListener("DOMContentLoaded", init);

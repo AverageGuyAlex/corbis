@@ -9,7 +9,7 @@
  * med på framdriften gjennom GET.
  */
 
-import { requireKey, json, errorResponse } from "../lib/auth.mjs";
+import { json, errorResponse } from "../lib/auth.mjs";
 import { readJSON, KEYS } from "../lib/blobs.mjs";
 import { collectEans, estimateSeconds } from "../lib/pricematrix.mjs";
 import { triggerRefresh } from "../lib/trigger.mjs";
@@ -20,9 +20,6 @@ export const config = { path: "/api/prices" };
 const FRESH_MS = 10 * 60 * 1000;
 
 export default async (req) => {
-  const denied = requireKey(req);
-  if (denied) return denied;
-
   try {
     if (req.method === "GET") {
       const [prices, refresh] = await Promise.all([

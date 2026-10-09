@@ -27,11 +27,10 @@ kommersiell bruk. Corbis bruker 2–3 kall per døgn i normal drift.
 npm install
 ```
 
-Kopier `.env.example` til `.env` og fyll inn de to verdiene:
+Kopier `.env.example` til `.env` og fyll inn tokenet:
 
 ```
 KASSAL_TOKEN=tokenet ditt fra kassal.app
-APP_PASSWORD=et langt passord du velger selv
 ```
 
 Start utviklingsserveren:
@@ -58,13 +57,13 @@ npm run smoke
 Push til GitHub og koble repoet i Netlify: **Add new site → Import an existing
 project → GitHub → corbis**.
 
-**Legg inn miljøvariablene før første deploy.** På oppsettsiden, før du trykker
-deploy, finnes knappen **Add environment variables**. Legg inn `KASSAL_TOKEN` og
-`APP_PASSWORD` der, og huk av «Contains secret values» på begge.
+**Legg inn miljøvariabelen før første deploy.** På oppsettsiden, før du trykker
+deploy, finnes knappen **Add environment variables**. Legg inn `KASSAL_TOKEN`
+der, og huk av «Contains secret values».
 
-Gjør du det etterpå i stedet, finner du dem under **Project configuration →
-Environment variables** — men da må du kjøre en ny deploy for at de skal tre i
-kraft, og det koster credits en gang til. Uten variablene svarer appen med en
+Gjør du det etterpå i stedet, finner du den under **Project configuration →
+Environment variables** — men da må du kjøre en ny deploy for at den skal tre i
+kraft, og det koster credits en gang til. Uten tokenet svarer appen med en
 tydelig feilmelding om hva som mangler.
 
 Med CLI-en, hvis du heller vil det:
@@ -77,7 +76,7 @@ Cron-jobbene starter av seg selv etter første publiserte deploy.
 
 ### 4. Første gangs oppsett i appen
 
-1. Åpne appen, skriv inn passordet.
+1. Åpne appen.
 2. Gå til **Butikker** og trykk «Søk opp butikker». Kryss av de du realistisk
    kan innom. Har du to Kiwi i nærheten, hold deg til den nærmeste — prisene er
    like.
@@ -257,9 +256,10 @@ ingen egen logikk; det faller ut av at alt er nøklet på strekkode.
 - **Løsvekt mangler ofte strekkode** — bananer, kjøtt over disk, løse
   grønnsaker. Slike varer markeres «kan ikke sammenlignes» framfor å gi et
   misvisende tall.
-- **Passordet er ikke ekte innlogging.** Nettleseren sender det i en header
-  over HTTPS og funksjonen sammenligner med en miljøvariabel. Det stopper
-  tilfeldig snoking i en handleliste, og det er alt det skal gjøre.
+- **Ingen innlogging.** Passordvakta er fjernet, og alle `/api/*`-funksjonene
+  svarer uten sjekk. Den som kjenner adressen kan lese og endre handlelista og
+  starte prisoppdateringer, og det bruker Kassalapp-kvoten din. Hold adressen
+  for deg selv.
 - **Strekkodeskanning** bruker nettleserens innebygde `BarcodeDetector`.
   Chrome på Android har den; Safari på iPhone har den ikke. Der den mangler,
   får du et felt for å skrive inn tallene under strekkoden.

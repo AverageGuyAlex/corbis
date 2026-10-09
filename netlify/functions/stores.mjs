@@ -9,7 +9,7 @@
  * mellom de to.
  */
 
-import { requireKey, json, errorResponse, readBody } from "../lib/auth.mjs";
+import { json, errorResponse, readBody } from "../lib/auth.mjs";
 import { kassalGetAll } from "../lib/kassal.mjs";
 import { readJSON, writeJSON, KEYS, DEFAULTS } from "../lib/blobs.mjs";
 import { positiveNumber } from "../../public/js/optimizer.js";
@@ -112,9 +112,6 @@ function summariseChains(selected) {
 }
 
 export default async (req) => {
-  const denied = requireKey(req);
-  if (denied) return denied;
-
   try {
     const url = new URL(req.url);
 

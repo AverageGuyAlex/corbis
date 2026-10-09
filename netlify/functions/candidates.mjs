@@ -7,7 +7,7 @@
  * mer presis for hver gang du bruker den.
  */
 
-import { requireKey, json, errorResponse, readBody } from "../lib/auth.mjs";
+import { json, errorResponse, readBody } from "../lib/auth.mjs";
 import { readJSON, writeJSON, KEYS } from "../lib/blobs.mjs";
 
 export const config = { path: "/api/candidates" };
@@ -23,9 +23,6 @@ function cleanEans(value) {
 }
 
 export default async (req) => {
-  const denied = requireKey(req);
-  if (denied) return denied;
-
   try {
     if (req.method === "GET") {
       const state = await readJSON(KEYS.candidates);

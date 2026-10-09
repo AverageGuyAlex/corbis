@@ -25,7 +25,7 @@ bedt om — og svaret er konkret: «kjøp disse 6 på Rema, resten på Kiwi, du 
 | Kjernen | Handlelista styrer alt | Filtrering løses ved konstruksjon, og svaret blir handlingsrettet |
 | Bytte-regel | Billigste tilsvarende vare per kjede, sammenlignet på kr/kg | Egne merker (First Price, Coop Xtra, Prima) er der de store pengene ligger. Kr/kg hindrer at ulike pakningsstørrelser lurer deg |
 | Svaret | Optimal splitt over flere butikker, med terskel per stopp | Maksimal besparelse, men appen skal ikke sende deg på en ekstra tur for 12 kr |
-| Synk | Netlify Blobs bak et passord | Lista skal være den samme på PC og telefon. localStorage kan ikke det |
+| Synk | Netlify Blobs, uten innlogging | Lista skal være den samme på PC og telefon. localStorage kan ikke det |
 
 ## Datakilden og dens hull
 
@@ -90,7 +90,7 @@ Disse er ikke pynt — de er der for at appen ikke skal lyve.
 3. **Median, ikke gjennomsnitt.** Én rar dag i historikken skal ikke flytte hva
    vi kaller normalpris.
 4. **Forbeholdene står i appen.** Nasjonal prising, daglig oppdatering,
-   løsvekt uten strekkode og hva passordet faktisk beskytter — alt synlig
+   løsvekt uten strekkode og at appen ikke har innlogging — alt synlig
    nederst i planen, ikke bortgjemt i en README.
 
 ## Hva ekte API avdekket (2026-08-17)
@@ -126,6 +126,6 @@ Sammenslåingsregelen måtte derfor foretrekke **ferskest**, ikke **lengst** —
 
 - Kundeaviser fra eTilbudsavis/Tjek. API-et er privat og udokumentert; skraping
   ville vært skjørt og på tvers av vilkårene.
-- Ekte innlogging med brukere. Én husholdning, ett passord.
+- Ekte innlogging med brukere. Én husholdning, ingen innlogging.
 - Skannerbibliotek for iPhone. `BarcodeDetector` pluss manuelt felt dekker
   behovet; biblioteket kan legges til hvis det viser seg å mangle.

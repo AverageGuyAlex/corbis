@@ -6,7 +6,7 @@
  * videre med kjedene de tilhører, pluss avstanden til den nærmeste av dem.
  */
 
-import { api, getKey } from "./api.js";
+import { api } from "./api.js";
 import { el, replace, $ } from "./dom.js";
 
 const selected = new Map(); // id → butikkobjekt
@@ -216,11 +216,6 @@ function locate(button) {
 }
 
 async function init() {
-  if (!getKey()) {
-    location.replace("index.html");
-    return;
-  }
-
   $("#search").addEventListener("click", (e) => doSearch(e.currentTarget));
   $("#save").addEventListener("click", (e) => doSave(e.currentTarget));
   $("#locate").addEventListener("click", (e) => locate(e.currentTarget));
@@ -250,10 +245,6 @@ async function init() {
       );
     }
   } catch (err) {
-    if (err.isAuth) {
-      location.replace("index.html");
-      return;
-    }
     toast(err.message, "bad");
   }
 }
