@@ -527,6 +527,11 @@ label.field > span { display: block; font-size: 0.78rem; color: var(--muted); ma
 
 /* --- Skanner ------------------------------------------------------------- */
 
+/* Startskjermen: tittel, én linje forklaring og en knapp. */
+.start { max-width: 22rem; margin: 15vh auto 0; text-align: center; }
+.start[hidden] { display: none; }
+.start p { margin: 0.6rem 0 1.4rem; }
+
 .scanbox { position: relative; background: #000; border-radius: var(--radius); overflow: hidden; }
 .scanbox video { display: block; width: 100%; max-height: 55vh; object-fit: cover; }
 .scanbox__frame {

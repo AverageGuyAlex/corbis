@@ -1192,8 +1192,14 @@ async function boot() {
   }
 }
 
+function enter() {
+  ui.start.hidden = true;
+  boot();
+}
+
 function init() {
   ui.app = $("#app");
+  ui.start = $("#start");
   ui.toast = $("#toast");
   ui.plan = $("#panel-plan");
   ui.liste = $("#panel-liste");
@@ -1211,7 +1217,7 @@ function init() {
 
   switchTab("plan");
 
-  boot();
+  $("#start-btn").addEventListener("click", enter);
 }
 
 document.addEventListener("DOMContentLoaded", init);
